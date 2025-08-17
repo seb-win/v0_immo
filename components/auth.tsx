@@ -107,7 +107,7 @@ export default function Auth({ supabaseClient }: AuthProps) {
   }
 
   return (
-    <div className="mx-auto max-w-md">
+    <div className="mx-auto max-w-md mt-20">
       <Card>
         <CardHeader>
           <CardTitle>Login</CardTitle>

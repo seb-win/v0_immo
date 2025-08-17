@@ -45,7 +45,7 @@ export default function AgentPage() {
   const handleLogout = async () => {
     await supabase.auth.signOut()
     localStorage.clear() // optional: ensure stale data is removed
-    router.push("/") // go to login
+    //router.push("/") // go to login
     window.location.href = "/"; 
   }
 
