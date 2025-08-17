@@ -16,7 +16,7 @@ export default function CustomerPage({ fullName }: CustomerPageProps) {
     await supabase.auth.signOut()
     localStorage.clear() // optional: ensure stale data is removed
     router.push("/") // go to login
-    location.reload() // 💥 force a hard reload to reset all state
+    window.location.href = "/"; 
   }
 
   return (
