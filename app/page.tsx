@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react"
 import { supabase } from "@/lib/supabase"
-import { Auth } from "@/components/auth"
+import Auth from "@/components/auth"
 import CustomerPage from "@/components/customer-page"
 import AgentPage from "@/components/agent-page"
 import { Button } from "@/components/ui/button"
