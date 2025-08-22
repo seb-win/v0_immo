@@ -1,130 +1,289 @@
-"use client"
+"use client";
 
-import { useEffect, useState } from "react"
-import { supabase } from "@/lib/supabase"
-import { useRouter } from "next/navigation"
-import { AlertCircle } from "lucide-react"
-import { Button } from "@/components/ui/button"
-import { Alert, AlertDescription } from "@/components/ui/alert"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import ListToolbar from "@/components/leads/list-toolbar";
+import LeadFilters from "@/components/leads/lead-filters";
+import LeadTable from "@/components/leads/lead-table";
+import NewLeadDialog from "@/components/leads/new-lead-dialog";
+import type { Lead, LeadStatus, SortSpec } from "@/lib/types/lead";
+import { LEAD_STATUS_LABEL } from "@/lib/types/lead";
+import { listLeads } from "@/lib/repositories/leads-repo";
 
-type Lead = {
-  id: string
-  full_name: string
-  email: string
-  phone: string
-  status: string
-  source: string
-  notes: string
-  created_at: string
-}
+/**
+ * Leads – Listenansicht mit Suche, Filtern, Sortierung, Pagination und "Neuer Lead".
+ * - URL-Query-Sync (q, status, page, pageSize, sort)
+ * - Lädt Daten über Repository (RLS: nur eigene Leads)
+ */
+
+type FiltersState = {
+  q?: string;
+  statuses?: LeadStatus[];
+  dateFrom?: string; // ISO
+  dateTo?: string;   // ISO
+};
+
+const DEFAULT_PAGE = 1;
+const DEFAULT_PAGE_SIZE = 25;
 
 export default function LeadsPage() {
-  const [leads, setLeads] = useState<Lead[]>([])
-  const [loading, setLoading] = useState(true)
-  const [checkingRole, setCheckingRole] = useState(true)
-  const [isAgent, setIsAgent] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const router = useRouter()
+  const router = useRouter();
+  const searchParams = useSearchParams();
+
+  // ------------------------- State -------------------------
+  const [filters, setFilters] = useState<FiltersState>(() => readFiltersFromURL(searchParams));
+  const [page, setPage] = useState<number>(() => readNumber(searchParams.get("page")) ?? DEFAULT_PAGE);
+  const [pageSize] = useState<number>(() => readNumber(searchParams.get("pageSize")) ?? DEFAULT_PAGE_SIZE);
+  const [sort, setSort] = useState<SortSpec | undefined>(() => readSort(searchParams.get("sort")));
+
+  const [rows, setRows] = useState<Lead[]>([]);
+  const [total, setTotal] = useState<number>(0);
+  const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const [newOpen, setNewOpen] = useState(false);
+
+  // ------------------------- URL -> State -------------------------
+  // Wenn der Nutzer per History/Back die URL ändert, übernehmen wir die Werte
+  useEffect(() => {
+    const nextFilters = readFiltersFromURL(searchParams);
+    const nextPage = readNumber(searchParams.get("page")) ?? DEFAULT_PAGE;
+    const nextSort = readSort(searchParams.get("sort"));
+    const nextPageSize = readNumber(searchParams.get("pageSize")) ?? DEFAULT_PAGE_SIZE;
+
+    setFilters(nextFilters);
+    setPage(nextPage);
+    // pageSize lassen wir bewusst stabil (kein UI zum Ändern), nur wenn URL was anderes sagt:
+    if (nextPageSize !== pageSize) {
+      // eslint-disable-next-line no-console
+      console.warn("[Leads] pageSize differs from default; keeping local value", nextPageSize, pageSize);
+    }
+    setSort(nextSort);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
+
+  // ------------------------- Daten laden -------------------------
+  const load = useCallback(async () => {
+    setIsLoading(true);
+    setError(null);
+    try {
+      const { data, total: t } = await listLeads({
+        ...filters,
+        page,
+        pageSize,
+        sort,
+      });
+      setRows(data);
+      setTotal(t);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Unbekannter Fehler beim Laden der Leads.";
+      setError(msg);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [filters, page, pageSize, sort]);
 
   useEffect(() => {
-    const fetchLeads = async () => {
-      try {
-        const { data: sessionData, error: sessionError } = await supabase.auth.getSession()
-        if (sessionError || !sessionData.session) {
-          router.push("/") // Not logged in
-          return
-        }
+    load();
+  }, [load]);
 
-        const user = sessionData.session.user
+  // ------------------------- URL Sync -------------------------
+  const updateURL = useCallback(
+    (next: {
+      filters?: FiltersState;
+      page?: number;
+      sort?: SortSpec | undefined;
+    }) => {
+      const sp = new URLSearchParams();
 
-        const { data: profile, error: profileError } = await supabase
-          .from("profiles")
-          .select("role")
-          .eq("id", user.id)
-          .single()
+      const f = next.filters ?? filters;
+      if (f.q) sp.set("q", f.q);
+      (f.statuses ?? []).forEach((s) => sp.append("status", s));
+      if (f.dateFrom) sp.set("from", f.dateFrom);
+      if (f.dateTo) sp.set("to", f.dateTo);
 
-        if (profileError || !profile || profile.role !== "agent") {
-          setIsAgent(false)
-          setCheckingRole(false)
-          return
-        }
+      const p = next.page ?? page;
+      if (p && p !== DEFAULT_PAGE) sp.set("page", String(p));
 
-        setIsAgent(true)
-        setCheckingRole(false)
+      if (pageSize && pageSize !== DEFAULT_PAGE_SIZE) sp.set("pageSize", String(pageSize));
 
-        const { data, error } = await supabase
-          .from("leads")
-          .select("*")
-          .order("created_at", { ascending: false })
+      const s = next.sort ?? sort;
+      if (s) sp.set("sort", `${s.field}:${s.direction}`);
 
-        if (error) {
-          setError(error.message)
-        } else {
-          setLeads(data as Lead[])
-        }
-      } catch (err) {
-        setError("An unexpected error occurred.")
-      } finally {
-        setLoading(false)
+      const qs = sp.toString();
+      router.replace(qs ? `/leads?${qs}` : "/leads", { scroll: false });
+    },
+    [filters, page, sort, pageSize, router]
+  );
+
+  // ------------------------- Handlers -------------------------
+  const handleFiltersChange = (f: FiltersState) => {
+    // Bei Filteränderung zurück auf Seite 1
+    setFilters(f);
+    setPage(1);
+    updateURL({ filters: f, page: 1 });
+  };
+
+  const handleClearAll = () => {
+    const cleared: FiltersState = {};
+    setFilters(cleared);
+    setPage(1);
+    setSort(undefined);
+    updateURL({ filters: cleared, page: 1, sort: undefined });
+  };
+
+  const handleSort = (next: SortSpec) => {
+    setSort(next);
+    setPage(1);
+    updateURL({ sort: next, page: 1 });
+  };
+
+  const handlePageChange = (p: number) => {
+    setPage(p);
+    updateURL({ page: p });
+  };
+
+  const handleCreated = (lead: Lead) => {
+    // Nach dem Anlegen zur Seite 1 und neu laden
+    setNewOpen(false);
+    setPage(1);
+    updateURL({ page: 1 });
+    // Fire-and-forget reload
+    load();
+  };
+
+  // ------------------------- Toolbar Chips -------------------------
+  const chips = useMemo(() => {
+    const items: { id: string; label: string; onClear?: () => void }[] = [];
+
+    if (filters.q) {
+      items.push({
+        id: "q",
+        label: `Suche: ${filters.q}`,
+        onClear: () => handleFiltersChange({ ...filters, q: undefined }),
+      });
+    }
+
+    if (filters.statuses?.length) {
+      for (const s of filters.statuses) {
+        items.push({
+          id: `status:${s}`,
+          label: `Status: ${LEAD_STATUS_LABEL[s]}`,
+          onClear: () =>
+            handleFiltersChange({
+              ...filters,
+              statuses: (filters.statuses ?? []).filter((x) => x !== s),
+            }),
+        });
       }
     }
 
-    fetchLeads()
-  }, [router])
+    if (filters.dateFrom) {
+      items.push({
+        id: "from",
+        label: `Von: ${formatDateChip(filters.dateFrom)}`,
+        onClear: () => handleFiltersChange({ ...filters, dateFrom: undefined }),
+      });
+    }
+    if (filters.dateTo) {
+      items.push({
+        id: "to",
+        label: `Bis: ${formatDateChip(filters.dateTo)}`,
+        onClear: () => handleFiltersChange({ ...filters, dateTo: undefined }),
+      });
+    }
 
-  if (checkingRole || loading) {
-    return (
-      <div className="flex justify-center items-center min-h-screen">
-        <p className="text-gray-500">Loading leads...</p>
-      </div>
-    )
-  }
-
-  if (!isAgent) {
-    return (
-      <div className="flex justify-center items-center min-h-screen">
-        <Alert variant="destructive">
-          <AlertCircle className="h-5 w-5" />
-          <AlertDescription>You are not authorized to view this page.</AlertDescription>
-        </Alert>
-      </div>
-    )
-  }
+    return items;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filters]);
 
   return (
-    <div className="p-6 max-w-5xl mx-auto">
-      <h1 className="text-2xl font-semibold mb-4">Leads</h1>
+    <div className="space-y-3 md:space-y-4">
+      <ListToolbar
+        title="Leads"
+        total={total}
+        chips={chips}
+        onClearAll={chips.length ? handleClearAll : undefined}
+        onNewLead={() => setNewOpen(true)}
+      />
+
+      <LeadFilters
+        defaultQ={filters.q}
+        defaultStatuses={filters.statuses}
+        defaultDateFrom={filters.dateFrom}
+        defaultDateTo={filters.dateTo}
+        onChange={handleFiltersChange}
+        onClearAll={handleClearAll}
+      />
+
       {error && (
-        <div className="mb-4 text-red-500 bg-red-100 p-2 rounded">{error}</div>
+        <div className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+          {error}
+        </div>
       )}
-      <div className="overflow-x-auto border rounded-lg">
-        <table className="min-w-full bg-white text-sm">
-          <thead className="bg-gray-100 text-left">
-            <tr>
-              <th className="px-4 py-2">Name</th>
-              <th className="px-4 py-2">Email</th>
-              <th className="px-4 py-2">Phone</th>
-              <th className="px-4 py-2">Status</th>
-              <th className="px-4 py-2">Source</th>
-              <th className="px-4 py-2">Created At</th>
-            </tr>
-          </thead>
-          <tbody>
-            {leads.map((lead) => (
-              <tr key={lead.id} className="border-t">
-                <td className="px-4 py-2">{lead.full_name}</td>
-                <td className="px-4 py-2">{lead.email}</td>
-                <td className="px-4 py-2">{lead.phone}</td>
-                <td className="px-4 py-2">{lead.status}</td>
-                <td className="px-4 py-2">{lead.source}</td>
-                <td className="px-4 py-2">
-                  {new Date(lead.created_at).toLocaleDateString("de-DE")}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+
+      <LeadTable
+        rows={rows}
+        total={total}
+        page={page}
+        pageSize={pageSize}
+        sort={sort}
+        onSort={handleSort}
+        onPageChange={handlePageChange}
+        isLoading={isLoading}
+      />
+
+      <NewLeadDialog
+        open={newOpen}
+        onOpenChange={setNewOpen}
+        onCreated={handleCreated}
+      />
     </div>
-  )
+  );
+}
+
+/* ------------------------------ URL helpers ------------------------------ */
+
+function readNumber(v: string | null): number | undefined {
+  if (!v) return;
+  const n = Number(v);
+  return Number.isFinite(n) && n > 0 ? n : undefined;
+}
+
+function readSort(input: string | null): SortSpec | undefined {
+  if (!input) return;
+  const [field, direction] = input.split(":");
+  if (!field || !direction) return;
+  if (!["asc", "desc"].includes(direction)) return;
+  // safety: map only allowed fields
+  const allowed = new Set(["created_at", "full_name", "status", "city", "postal_code"]);
+  if (!allowed.has(field)) return;
+  return { field: field as SortSpec["field"], direction: direction as SortSpec["direction"] };
+}
+
+function readFiltersFromURL(sp: ReturnType<typeof useSearchParams>): FiltersState {
+  const q = sp.get("q") ?? undefined;
+  const statuses = sp.getAll("status") as LeadStatus[];
+  const dateFrom = sp.get("from") ?? undefined;
+  const dateTo = sp.get("to") ?? undefined;
+  return {
+    q: q || undefined,
+    statuses: statuses.length ? statuses : undefined,
+    dateFrom: dateFrom || undefined,
+    dateTo: dateTo || undefined,
+  };
+}
+
+function formatDateChip(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "—";
+  try {
+    return new Intl.DateTimeFormat("de-DE", {
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).format(d);
+  } catch {
+    return d.toISOString().slice(0, 10);
+  }
 }

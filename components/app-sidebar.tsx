@@ -9,6 +9,11 @@ import { Home, Building, FileText, LogOut } from "lucide-react";
 
 type IconType = React.ComponentType<React.SVGProps<SVGSVGElement>>;
 
+function isActivePath(pathname: string, href: string) {
+  // Aktiv, wenn exakt auf der Route oder in einer Unterroute (z. B. /leads/123)
+  return pathname === href || pathname.startsWith(href + "/");
+}
+
 function NavLink({
   href,
   label,
@@ -23,12 +28,13 @@ function NavLink({
   return (
     <Link
       href={href}
-      className={`flex items-center gap-3 rounded-md px-3 py-2 text-sm
-        ${
-          active
-            ? "bg-primary/10 text-primary"
-            : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
-        }`}
+      aria-current={active ? "page" : undefined}
+      className={`flex items-center gap-3 rounded-md px-3 py-2 text-sm outline-none
+        ${active
+          ? "bg-primary/10 text-primary font-medium"
+          : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+        }
+        focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2`}
     >
       <Icon className="h-5 w-5" />
       <span>{label}</span>
@@ -41,18 +47,18 @@ export default function AppSidebar() {
   const [email, setEmail] = useState<string | null>(null);
 
   useEffect(() => {
-    supabase?.auth.getUser().then(({ data }) =>
-      setEmail(data.user?.email ?? null)
-    );
+    supabase.auth.getUser().then(({ data }) => {
+      setEmail(data.user?.email ?? null);
+    });
   }, []);
 
   const handleSignOut = async () => {
-    await supabase?.auth.signOut();
+    await supabase.auth.signOut();
     window.location.href = "/";
   };
 
   return (
-    // Visible from md breakpoint up
+    // Sichtbar ab md-Breakpoint
     <aside className="hidden md:sticky md:top-0 md:flex md:h-svh md:w-64 md:flex-col md:border-r md:bg-card md:px-4 md:py-6">
       <div className="flex h-full flex-col justify-between">
         {/* Brand + Nav */}
@@ -63,28 +69,31 @@ export default function AppSidebar() {
           </div>
 
           <nav className="mt-8 flex flex-col gap-1">
+            {/* PRIMARY: Leads */}
             <NavLink
               href="/leads"
               label="Leads"
               icon={Home}
-              active={pathname?.startsWith("/leads") ?? false}
+              active={isActivePath(pathname ?? "", "/leads")}
             />
+
+            {/* Weitere Einträge */}
             <NavLink
               href="/objekte"
               label="Objekte"
               icon={Building}
-              active={pathname?.startsWith("/objekte") ?? false}
+              active={isActivePath(pathname ?? "", "/objekte")}
             />
             <NavLink
               href="/dokumente"
               label="Dokumente"
               icon={FileText}
-              active={pathname?.startsWith("/dokumente") ?? false}
+              active={isActivePath(pathname ?? "", "/dokumente")}
             />
           </nav>
         </div>
 
-        {/* Footer (stable at bottom) */}
+        {/* Footer (fix am unteren Rand) */}
         <div>
           <div className="my-4 h-px bg-border" />
           <div className="flex flex-col gap-2">
