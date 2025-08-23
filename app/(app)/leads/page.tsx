@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import ListToolbar from "@/components/leads/list-toolbar";
 import LeadFilters from "@/components/leads/lead-filters";
@@ -10,27 +10,42 @@ import type { Lead, LeadStatus, SortSpec } from "@/lib/types/lead";
 import { LEAD_STATUS_LABEL } from "@/lib/types/lead";
 import { listLeads } from "@/lib/repositories/leads-repo";
 
-/**
- * Leads – Listenansicht mit Suche, Filtern, Sortierung, Pagination und "Neuer Lead".
- * - URL-Query-Sync (q, status, page, pageSize, sort)
- * - Lädt Daten über Repository (RLS: nur eigene Leads)
- */
+/* ------------------- Page wrapper with Suspense ------------------- */
+
+export default function LeadsPage() {
+  return (
+    <Suspense fallback={<LeadsPageSkeleton />}>
+      <LeadsPageContent />
+    </Suspense>
+  );
+}
+
+function LeadsPageSkeleton() {
+  return (
+    <div className="space-y-3 md:space-y-4">
+      <div className="h-14 rounded-md border bg-muted/40 animate-pulse" />
+      <div className="h-24 rounded-md border bg-muted/40 animate-pulse" />
+      <div className="h-72 rounded-md border bg-muted/40 animate-pulse" />
+    </div>
+  );
+}
+
+/* ------------------- Actual page content (uses hook) --------------- */
 
 type FiltersState = {
   q?: string;
   statuses?: LeadStatus[];
-  dateFrom?: string; // ISO
-  dateTo?: string;   // ISO
+  dateFrom?: string;
+  dateTo?: string;
 };
 
 const DEFAULT_PAGE = 1;
 const DEFAULT_PAGE_SIZE = 25;
 
-export default function LeadsPage() {
+function LeadsPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
-  // ------------------------- State -------------------------
   const [filters, setFilters] = useState<FiltersState>(() => readFiltersFromURL(searchParams));
   const [page, setPage] = useState<number>(() => readNumber(searchParams.get("page")) ?? DEFAULT_PAGE);
   const [pageSize] = useState<number>(() => readNumber(searchParams.get("pageSize")) ?? DEFAULT_PAGE_SIZE);
@@ -43,8 +58,6 @@ export default function LeadsPage() {
 
   const [newOpen, setNewOpen] = useState(false);
 
-  // ------------------------- URL -> State -------------------------
-  // Wenn der Nutzer per History/Back die URL ändert, übernehmen wir die Werte
   useEffect(() => {
     const nextFilters = readFiltersFromURL(searchParams);
     const nextPage = readNumber(searchParams.get("page")) ?? DEFAULT_PAGE;
@@ -53,16 +66,13 @@ export default function LeadsPage() {
 
     setFilters(nextFilters);
     setPage(nextPage);
-    // pageSize lassen wir bewusst stabil (kein UI zum Ändern), nur wenn URL was anderes sagt:
     if (nextPageSize !== pageSize) {
-      // eslint-disable-next-line no-console
-      console.warn("[Leads] pageSize differs from default; keeping local value", nextPageSize, pageSize);
+      // optional: pageSize-Änderungen behandeln
     }
     setSort(nextSort);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams]);
 
-  // ------------------------- Daten laden -------------------------
   const load = useCallback(async () => {
     setIsLoading(true);
     setError(null);
@@ -87,38 +97,31 @@ export default function LeadsPage() {
     load();
   }, [load]);
 
-  // ------------------------- URL Sync -------------------------
-  const updateURL = useCallback(
-    (next: {
-      filters?: FiltersState;
-      page?: number;
-      sort?: SortSpec | undefined;
-    }) => {
-      const sp = new URLSearchParams();
+  const updateURL = (next: {
+    filters?: FiltersState;
+    page?: number;
+    sort?: SortSpec | undefined;
+  }) => {
+    const sp = new URLSearchParams();
 
-      const f = next.filters ?? filters;
-      if (f.q) sp.set("q", f.q);
-      (f.statuses ?? []).forEach((s) => sp.append("status", s));
-      if (f.dateFrom) sp.set("from", f.dateFrom);
-      if (f.dateTo) sp.set("to", f.dateTo);
+    const f = next.filters ?? filters;
+    if (f.q) sp.set("q", f.q);
+    (f.statuses ?? []).forEach((s) => sp.append("status", s));
+    if (f.dateFrom) sp.set("from", f.dateFrom);
+    if (f.dateTo) sp.set("to", f.dateTo);
 
-      const p = next.page ?? page;
-      if (p && p !== DEFAULT_PAGE) sp.set("page", String(p));
+    const p = next.page ?? page;
+    if (p && p !== DEFAULT_PAGE) sp.set("page", String(p));
+    if (pageSize && pageSize !== DEFAULT_PAGE_SIZE) sp.set("pageSize", String(pageSize));
 
-      if (pageSize && pageSize !== DEFAULT_PAGE_SIZE) sp.set("pageSize", String(pageSize));
+    const s = next.sort ?? sort;
+    if (s) sp.set("sort", `${s.field}:${s.direction}`);
 
-      const s = next.sort ?? sort;
-      if (s) sp.set("sort", `${s.field}:${s.direction}`);
+    const qs = sp.toString();
+    router.replace(qs ? `/leads?${qs}` : "/leads", { scroll: false });
+  };
 
-      const qs = sp.toString();
-      router.replace(qs ? `/leads?${qs}` : "/leads", { scroll: false });
-    },
-    [filters, page, sort, pageSize, router]
-  );
-
-  // ------------------------- Handlers -------------------------
   const handleFiltersChange = (f: FiltersState) => {
-    // Bei Filteränderung zurück auf Seite 1
     setFilters(f);
     setPage(1);
     updateURL({ filters: f, page: 1 });
@@ -143,19 +146,15 @@ export default function LeadsPage() {
     updateURL({ page: p });
   };
 
-  const handleCreated = (lead: Lead) => {
-    // Nach dem Anlegen zur Seite 1 und neu laden
+  const handleCreated = () => {
     setNewOpen(false);
     setPage(1);
     updateURL({ page: 1 });
-    // Fire-and-forget reload
     load();
   };
 
-  // ------------------------- Toolbar Chips -------------------------
   const chips = useMemo(() => {
     const items: { id: string; label: string; onClear?: () => void }[] = [];
-
     if (filters.q) {
       items.push({
         id: "q",
@@ -163,7 +162,6 @@ export default function LeadsPage() {
         onClear: () => handleFiltersChange({ ...filters, q: undefined }),
       });
     }
-
     if (filters.statuses?.length) {
       for (const s of filters.statuses) {
         items.push({
@@ -177,7 +175,6 @@ export default function LeadsPage() {
         });
       }
     }
-
     if (filters.dateFrom) {
       items.push({
         id: "from",
@@ -192,7 +189,6 @@ export default function LeadsPage() {
         onClear: () => handleFiltersChange({ ...filters, dateTo: undefined }),
       });
     }
-
     return items;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filters]);
@@ -255,34 +251,24 @@ function readSort(input: string | null): SortSpec | undefined {
   const [field, direction] = input.split(":");
   if (!field || !direction) return;
   if (!["asc", "desc"].includes(direction)) return;
-  // safety: map only allowed fields
   const allowed = new Set(["created_at", "full_name", "status", "city", "postal_code"]);
   if (!allowed.has(field)) return;
   return { field: field as SortSpec["field"], direction: direction as SortSpec["direction"] };
 }
 
-function readFiltersFromURL(sp: ReturnType<typeof useSearchParams>): FiltersState {
+function readFiltersFromURL(sp: ReturnType<typeof useSearchParams>) {
   const q = sp.get("q") ?? undefined;
   const statuses = sp.getAll("status") as LeadStatus[];
   const dateFrom = sp.get("from") ?? undefined;
   const dateTo = sp.get("to") ?? undefined;
-  return {
-    q: q || undefined,
-    statuses: statuses.length ? statuses : undefined,
-    dateFrom: dateFrom || undefined,
-    dateTo: dateTo || undefined,
-  };
+  return { q, statuses: statuses.length ? statuses : undefined, dateFrom, dateTo };
 }
 
 function formatDateChip(iso: string): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "—";
   try {
-    return new Intl.DateTimeFormat("de-DE", {
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-    }).format(d);
+    return new Intl.DateTimeFormat("de-DE", { year: "numeric", month: "2-digit", day: "2-digit" }).format(d);
   } catch {
     return d.toISOString().slice(0, 10);
   }
