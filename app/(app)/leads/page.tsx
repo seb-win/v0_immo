@@ -10,8 +10,6 @@ import type { Lead, LeadStatus, SortSpec } from "@/lib/types/lead";
 import { LEAD_STATUS_LABEL } from "@/lib/types/lead";
 import { listLeads } from "@/lib/repositories/leads-repo";
 
-/* ------------------- Page wrapper with Suspense ------------------- */
-
 export default function LeadsPage() {
   return (
     <Suspense fallback={<LeadsPageSkeleton />}>
@@ -29,8 +27,6 @@ function LeadsPageSkeleton() {
     </div>
   );
 }
-
-/* ------------------- Actual page content (uses hook) --------------- */
 
 type FiltersState = {
   q?: string;
@@ -67,7 +63,7 @@ function LeadsPageContent() {
     setFilters(nextFilters);
     setPage(nextPage);
     if (nextPageSize !== pageSize) {
-      // optional: pageSize-Änderungen behandeln
+      // pageSize bleibt lokal; UI zum Ändern noch nicht vorhanden
     }
     setSort(nextSort);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -118,6 +114,10 @@ function LeadsPageContent() {
     if (s) sp.set("sort", `${s.field}:${s.direction}`);
 
     const qs = sp.toString();
+    const prevQs = searchParams.toString();
+    // 🚫 Verhindere nutzlose Navigations-Events (und damit Loops)
+    if (qs === prevQs) return;
+
     router.replace(qs ? `/leads?${qs}` : "/leads", { scroll: false });
   };
 
@@ -238,14 +238,11 @@ function LeadsPageContent() {
   );
 }
 
-/* ------------------------------ URL helpers ------------------------------ */
-
 function readNumber(v: string | null): number | undefined {
   if (!v) return;
   const n = Number(v);
   return Number.isFinite(n) && n > 0 ? n : undefined;
 }
-
 function readSort(input: string | null): SortSpec | undefined {
   if (!input) return;
   const [field, direction] = input.split(":");
@@ -255,7 +252,6 @@ function readSort(input: string | null): SortSpec | undefined {
   if (!allowed.has(field)) return;
   return { field: field as SortSpec["field"], direction: direction as SortSpec["direction"] };
 }
-
 function readFiltersFromURL(sp: ReturnType<typeof useSearchParams>) {
   const q = sp.get("q") ?? undefined;
   const statuses = sp.getAll("status") as LeadStatus[];
@@ -263,7 +259,6 @@ function readFiltersFromURL(sp: ReturnType<typeof useSearchParams>) {
   const dateTo = sp.get("to") ?? undefined;
   return { q, statuses: statuses.length ? statuses : undefined, dateFrom, dateTo };
 }
-
 function formatDateChip(iso: string): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "—";
