@@ -1,193 +1,130 @@
-"use client"
+"use client";
 
-import type React from "react"
-import type { SupabaseClient } from "@supabase/supabase-js"
+import { useEffect, useState } from "react";
+import type { SupabaseClient } from "@supabase/supabase-js";
+import { supabase as defaultClient } from "@/lib/supabase";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Loader2 } from "lucide-react";
 
-import { useState } from "react"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Label } from "@/components/ui/label"
-import { AlertCircle } from "lucide-react"
+type AuthProps = {
+  /** Optional – wird bei dir bereits so verwendet: <Auth supabaseClient={supabase} /> */
+  supabaseClient?: SupabaseClient;
+  className?: string;
+};
 
-interface AuthProps {
-  supabaseClient: SupabaseClient | null
-}
+export default function Auth({ supabaseClient, className }: AuthProps) {
+  const client = supabaseClient ?? defaultClient;
 
-export default function Auth({ supabaseClient }: AuthProps) {
-  const [email, setEmail] = useState("")
-  const [password, setPassword] = useState("")
-  const [loading, setLoading] = useState(false)
+  const [checkingSession, setCheckingSession] = useState(true);
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const handleSignUp = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!supabaseClient) {
-      alert("Supabase is not configured. Please check your environment variables.")
-      return
-    }
+  // Beim Mount: Session prüfen – „keine Session“ ist KEIN Fehler.
+  useEffect(() => {
+    let alive = true;
 
-    setLoading(true)
-    try {
-      const { error } = await supabaseClient.auth.signUp({
-        email,
-        password,
-      })
-      if (error) {
-        alert(`Sign up error: ${error.message}`)
-      } else {
-        alert("Bitte bestätige deine E-Mail. Danach kannst du dich einloggen.")
+    client.auth.getSession().then(({ data, error }) => {
+      if (!alive) return;
+      // Falls der SDK hier „Auth session missing“ liefert: ignorieren.
+      if (error && !/session missing/i.test(error.message)) {
+        // Nur echte Fehler zeigen
+        setError(error.message);
       }
+      setCheckingSession(false);
+      // Falls bereits eingeloggt, kümmert sich deine Home-Seite/Layouts um Redirect.
+    });
+
+    // Live auf Login/Logout reagieren (kein UI-Fehler anzeigen)
+    const { data: { subscription } } = client.auth.onAuthStateChange(() => {
+      // Keine spezielle Aktion nötig: deine app/page.tsx erkennt den Login und leitet weiter.
+      // Optional könnte man hier router.refresh() aufrufen, ist aber nicht erforderlich.
+    });
+
+    return () => {
+      alive = false;
+      subscription.unsubscribe();
+    };
+  }, [client]);
+
+  async function handleSignIn(e: React.FormEvent) {
+    e.preventDefault();
+    setError(null);
+    setSubmitting(true);
+    try {
+      const { error } = await client.auth.signInWithPassword({ email, password });
+      if (error) {
+        setError(error.message);
+        return;
+      }
+      // Erfolgreicher Login → onAuthStateChange triggert in deiner App den Redirect.
     } catch (err) {
-      alert(`Network error: ${err instanceof Error ? err.message : "Unknown error"}`)
+      setError(err instanceof Error ? err.message : "Unbekannter Fehler beim Anmelden.");
     } finally {
-      setLoading(false)
+      setSubmitting(false);
     }
   }
 
-  // --- SIGN IN WITH ROLE-BASED REDIRECT (profiles table) ---
-  const handleSignIn = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!supabaseClient) {
-      alert("Supabase is not configured. Please check your environment variables.")
-      return
-    }
-
-    setLoading(true)
-    try {
-      // 1) Sign in
-      const { data: signInData, error: signInError } = await supabaseClient.auth.signInWithPassword({
-        email,
-        password,
-      })
-      if (signInError) {
-        alert(`Sign in error: ${signInError.message}`)
-        return
-      }
-
-      // 2) Grab the user
-      const { data: userData, error: userErr } = await supabaseClient.auth.getUser()
-      if (userErr) {
-        alert(`Could not load user: ${userErr.message}`)
-        return
-      }
-      const userId = userData.user?.id
-      if (!userId) {
-        alert("No user id returned after login.")
-        return
-      }
-
-      // 3) Load role from profiles
-      const { data: profile, error: profileErr } = await supabaseClient
-        .from("profiles")
-        .select("role")
-        .eq("id", userId)
-        .single()
-
-      if (profileErr) {
-        // If profile missing or RLS prevents it, default to customer-page
-        // (You can log profileErr.message in dev if needed)
-        window.location.href = "/customer-page"
-        return
-      }
-
-      const role = (profile?.role || "").toLowerCase()
-
-      // 4) Redirect by role (adjust routes if yours differ)
-      if (role === "agent") {
-        window.location.href = "/agent-page"
-      } else {
-        window.location.href = "/customer-page"
-      }
-    } catch (err) {
-      alert(`Network error: ${err instanceof Error ? err.message : "Unknown error"}`)
-    } finally {
-      setLoading(false)
-    }
+  if (checkingSession) {
+    return (
+      <div className="flex min-h-screen items-center justify-center text-sm text-muted-foreground">
+        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+        Lädt …
+      </div>
+    );
   }
 
   return (
-    <div className="mx-auto max-w-md mt-20">
-      <Card>
-        <CardHeader>
-          <CardTitle>Login</CardTitle>
-          <CardDescription>Bitte melde dich an oder registriere dich.</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <Tabs defaultValue="signin">
-            <TabsList className="grid w-full grid-cols-2">
-              <TabsTrigger value="signin">Sign In</TabsTrigger>
-              <TabsTrigger value="signup">Sign Up</TabsTrigger>
-            </TabsList>
+    <div className={["flex min-h-screen items-center justify-center bg-background px-4", className].filter(Boolean).join(" ")}>
+      <div className="w-full max-w-sm rounded-lg border bg-card p-6 shadow-sm">
+        <h1 className="mb-1 text-xl font-semibold">Anmelden</h1>
+        <p className="mb-4 text-sm text-muted-foreground">
+          Melde dich mit deinen Zugangsdaten an.
+        </p>
 
-            <TabsContent value="signin">
-              <form onSubmit={handleSignIn} className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="email">Email</Label>
-                  <Input
-                    id="email"
-                    type="email"
-                    placeholder="your@email.com"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    required
-                    autoComplete="email"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="password">Passwort</Label>
-                  <Input
-                    id="password"
-                    type="password"
-                    placeholder="••••••••"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    required
-                    autoComplete="current-password"
-                  />
-                </div>
+        {error && (
+          <div className="mb-3 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+            {error}
+          </div>
+        )}
 
-                <Button type="submit" className="w-full" disabled={loading}>
-                  {loading ? "Anmelden…" : "Anmelden"}
-                </Button>
-              </form>
-            </TabsContent>
+        <form onSubmit={handleSignIn} className="space-y-3">
+          <div className="space-y-1.5">
+            <label htmlFor="email" className="text-sm font-medium">E-Mail</label>
+            <Input
+              id="email"
+              type="email"
+              autoComplete="email"
+              placeholder="you@example.com"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              required
+            />
+          </div>
 
-            <TabsContent value="signup">
-              <form onSubmit={handleSignUp} className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="email_signup">Email</Label>
-                  <Input
-                    id="email_signup"
-                    type="email"
-                    placeholder="your@email.com"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    required
-                    autoComplete="email"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="password_signup">Passwort</Label>
-                  <Input
-                    id="password_signup"
-                    type="password"
-                    placeholder="••••••••"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    required
-                    autoComplete="new-password"
-                  />
-                </div>
+          <div className="space-y-1.5">
+            <label htmlFor="password" className="text-sm font-medium">Passwort</label>
+            <Input
+              id="password"
+              type="password"
+              autoComplete="current-password"
+              placeholder="••••••••"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              required
+            />
+          </div>
 
-                <Button type="submit" className="w-full" disabled={loading}>
-                  {loading ? "Registrieren…" : "Registrieren"}
-                </Button>
-              </form>
-            </TabsContent>
-          </Tabs>
-        </CardContent>
-      </Card>
+          <Button type="submit" className="w-full gap-2" disabled={submitting}>
+            {submitting && <Loader2 className="h-4 w-4 animate-spin" />}
+            Anmelden
+          </Button>
+        </form>
+
+        {/* Optional: Magic Link / Social Logins später ergänzen */}
+      </div>
     </div>
-  )
+  );
 }
