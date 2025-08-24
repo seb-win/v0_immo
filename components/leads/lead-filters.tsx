@@ -87,7 +87,7 @@ export default function LeadFilters({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selected, dateFrom, dateTo]);
 
-  // Outside click schließt das Menü
+  // Outside click / Esc schließt das Menü
   useEffect(() => {
     if (!statusOpen) return;
     const onDown = (e: MouseEvent) => {
@@ -155,7 +155,7 @@ export default function LeadFilters({
           />
         </div>
 
-        {/* Status Dropdown – ohne Zurücksetzen/Anwenden */}
+        {/* Status Dropdown – nur Badges, keine Buttons */}
         <div className="relative">
           <Button
             ref={btnRef}
@@ -195,12 +195,11 @@ export default function LeadFilters({
                         active ? "bg-accent text-accent-foreground" : "hover:bg-accent hover:text-accent-foreground"
                       )}
                     >
-                      <span className="inline-flex items-center gap-2">
-                        {/* Farbigkeit exakt wie in der Tabelle */}
+                      {/* Nur der farbige Badge (enthält schon das Label) */}
+                      <span className="inline-flex items-center">
                         <LeadStatusBadge status={s} />
-                        <span>{LEAD_STATUS_LABEL[s]}</span>
                       </span>
-                      {active && <Check className="h-4 w-4" />}
+                      {active && <Check className="h-4 w-4" aria-hidden />}
                     </button>
                   );
                 })}
@@ -243,8 +242,6 @@ export default function LeadFilters({
             className="gap-2"
             aria-label="Alle Filter zurücksetzen"
           >
-            {/* kleines „x“ optional – du kannst es beibehalten oder entfernen */}
-            {/* <X className="h-4 w-4" /> */}
             Alle Filter löschen
           </Button>
         </div>
