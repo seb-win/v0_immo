@@ -10,6 +10,8 @@ import type { Lead, LeadStatus, SortSpec } from "@/lib/types/lead";
 import { LEAD_STATUS_LABEL } from "@/lib/types/lead";
 import { listLeads } from "@/lib/repositories/leads-repo";
 
+/* ------------------- Page wrapper with Suspense ------------------- */
+
 export default function LeadsPage() {
   return (
     <Suspense fallback={<LeadsPageSkeleton />}>
@@ -28,72 +30,65 @@ function LeadsPageSkeleton() {
   );
 }
 
-type FiltersState = {
-  q?: string;
-  statuses?: LeadStatus[];
-  dateFrom?: string;
-  dateTo?: string;
-};
+/* ------------------- Actual page content (URL-driven) --------------- */
 
 const DEFAULT_PAGE = 1;
 const DEFAULT_PAGE_SIZE = 25;
+
+type FiltersState = {
+  q?: string;
+  statuses?: LeadStatus[];
+  dateFrom?: string; // ISO
+  dateTo?: string;   // ISO
+};
 
 function LeadsPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
-  const [filters, setFilters] = useState<FiltersState>(() => readFiltersFromURL(searchParams));
-  const [page, setPage] = useState<number>(() => readNumber(searchParams.get("page")) ?? DEFAULT_PAGE);
-  const [pageSize] = useState<number>(() => readNumber(searchParams.get("pageSize")) ?? DEFAULT_PAGE_SIZE);
-  const [sort, setSort] = useState<SortSpec | undefined>(() => readSort(searchParams.get("sort")));
+  // 👇 Alle Steuerwerte rein aus der URL ableiten (keine lokalen Mirror-States)
+  const filters: FiltersState = useMemo(() => readFiltersFromURL(searchParams), [searchParams]);
+  const page = useMemo(() => readNumber(searchParams.get("page")) ?? DEFAULT_PAGE, [searchParams]);
+  const pageSize = DEFAULT_PAGE_SIZE; // (konstant – UI zum Ändern fehlt aktuell)
+  const sort = useMemo(() => readSort(searchParams.get("sort")), [searchParams]);
 
   const [rows, setRows] = useState<Lead[]>([]);
   const [total, setTotal] = useState<number>(0);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
-
   const [newOpen, setNewOpen] = useState(false);
 
+  // Daten laden, sobald URL-getriebene Steuerwerte sich ändern
   useEffect(() => {
-    const nextFilters = readFiltersFromURL(searchParams);
-    const nextPage = readNumber(searchParams.get("page")) ?? DEFAULT_PAGE;
-    const nextSort = readSort(searchParams.get("sort"));
-    const nextPageSize = readNumber(searchParams.get("pageSize")) ?? DEFAULT_PAGE_SIZE;
-
-    setFilters(nextFilters);
-    setPage(nextPage);
-    if (nextPageSize !== pageSize) {
-      // pageSize bleibt lokal; UI zum Ändern noch nicht vorhanden
-    }
-    setSort(nextSort);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchParams]);
-
-  const load = useCallback(async () => {
-    setIsLoading(true);
-    setError(null);
-    try {
-      const { data, total: t } = await listLeads({
-        ...filters,
-        page,
-        pageSize,
-        sort,
-      });
-      setRows(data);
-      setTotal(t);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : "Unbekannter Fehler beim Laden der Leads.";
-      setError(msg);
-    } finally {
-      setIsLoading(false);
-    }
+    let alive = true;
+    (async () => {
+      setIsLoading(true);
+      setError(null);
+      try {
+        const { data, total: t } = await listLeads({
+          ...filters,
+          page,
+          pageSize,
+          sort,
+        });
+        if (!alive) return;
+        setRows(data);
+        setTotal(t);
+      } catch (err) {
+        if (!alive) return;
+        const msg = err instanceof Error ? err.message : "Unbekannter Fehler beim Laden der Leads.";
+        setError(msg);
+      } finally {
+        if (alive) setIsLoading(false);
+      }
+    })();
+    return () => {
+      alive = false;
+    };
   }, [filters, page, pageSize, sort]);
 
-  useEffect(() => {
-    load();
-  }, [load]);
-
-  const updateURL = (next: {
+  // Nur dann die URL ändern, wenn sich die Query wirklich ändert
+  const updateURL = useCallback((next: {
     filters?: FiltersState;
     page?: number;
     sort?: SortSpec | undefined;
@@ -108,6 +103,7 @@ function LeadsPageContent() {
 
     const p = next.page ?? page;
     if (p && p !== DEFAULT_PAGE) sp.set("page", String(p));
+
     if (pageSize && pageSize !== DEFAULT_PAGE_SIZE) sp.set("pageSize", String(pageSize));
 
     const s = next.sort ?? sort;
@@ -115,46 +111,40 @@ function LeadsPageContent() {
 
     const qs = sp.toString();
     const prevQs = searchParams.toString();
-    // 🚫 Verhindere nutzlose Navigations-Events (und damit Loops)
-    if (qs === prevQs) return;
+    if (qs === prevQs) return; // ✅ vermeidet Ping-Pong
 
     router.replace(qs ? `/leads?${qs}` : "/leads", { scroll: false });
-  };
+  }, [filters, page, pageSize, sort, router, searchParams]);
+
+  /* ------------------------- Handlers ------------------------- */
 
   const handleFiltersChange = (f: FiltersState) => {
-    setFilters(f);
-    setPage(1);
+    // Filter ändern → immer Seite 1
     updateURL({ filters: f, page: 1 });
   };
 
   const handleClearAll = () => {
-    const cleared: FiltersState = {};
-    setFilters(cleared);
-    setPage(1);
-    setSort(undefined);
-    updateURL({ filters: cleared, page: 1, sort: undefined });
+    updateURL({ filters: {}, page: 1, sort: undefined });
   };
 
   const handleSort = (next: SortSpec) => {
-    setSort(next);
-    setPage(1);
     updateURL({ sort: next, page: 1 });
   };
 
   const handlePageChange = (p: number) => {
-    setPage(p);
     updateURL({ page: p });
   };
 
   const handleCreated = () => {
     setNewOpen(false);
-    setPage(1);
-    updateURL({ page: 1 });
-    load();
+    updateURL({ page: 1 }); // nach Anlage zurück zu Seite 1 & neu laden
   };
+
+  /* ------------------------- Chips aus URL ------------------------- */
 
   const chips = useMemo(() => {
     const items: { id: string; label: string; onClear?: () => void }[] = [];
+
     if (filters.q) {
       items.push({
         id: "q",
@@ -190,7 +180,6 @@ function LeadsPageContent() {
       });
     }
     return items;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filters]);
 
   return (
@@ -238,11 +227,14 @@ function LeadsPageContent() {
   );
 }
 
+/* ------------------------------ Helpers ------------------------------ */
+
 function readNumber(v: string | null): number | undefined {
   if (!v) return;
   const n = Number(v);
   return Number.isFinite(n) && n > 0 ? n : undefined;
 }
+
 function readSort(input: string | null): SortSpec | undefined {
   if (!input) return;
   const [field, direction] = input.split(":");
@@ -252,13 +244,15 @@ function readSort(input: string | null): SortSpec | undefined {
   if (!allowed.has(field)) return;
   return { field: field as SortSpec["field"], direction: direction as SortSpec["direction"] };
 }
-function readFiltersFromURL(sp: ReturnType<typeof useSearchParams>) {
+
+function readFiltersFromURL(sp: ReturnType<typeof useSearchParams>): FiltersState {
   const q = sp.get("q") ?? undefined;
   const statuses = sp.getAll("status") as LeadStatus[];
   const dateFrom = sp.get("from") ?? undefined;
   const dateTo = sp.get("to") ?? undefined;
   return { q, statuses: statuses.length ? statuses : undefined, dateFrom, dateTo };
 }
+
 function formatDateChip(iso: string): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "—";
