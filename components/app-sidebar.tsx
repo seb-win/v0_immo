@@ -30,9 +30,10 @@ function NavLink({
       href={href}
       aria-current={active ? "page" : undefined}
       className={`flex items-center gap-3 rounded-md px-3 py-2 text-sm outline-none
-        ${active
-          ? "bg-primary/10 text-primary font-medium"
-          : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+        ${
+          active
+            ? "bg-primary/10 text-primary font-medium"
+            : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
         }
         focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2`}
     >
@@ -46,10 +47,28 @@ export default function AppSidebar() {
   const pathname = usePathname();
   const [email, setEmail] = useState<string | null>(null);
 
+  // Email im Footer live halten (Login/Logout)
   useEffect(() => {
-    supabase.auth.getUser().then(({ data }) => {
-      setEmail(data.user?.email ?? null);
+    let alive = true;
+
+    // Initial: Session abfragen (keine Fehlermeldung bei fehlender Session)
+    supabase.auth.getSession().then(({ data }) => {
+      if (!alive) return;
+      setEmail(data.session?.user?.email ?? null);
     });
+
+    // Live: auf Auth-Events hören
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (!alive) return;
+      setEmail(session?.user?.email ?? null);
+    });
+
+    return () => {
+      alive = false;
+      subscription.unsubscribe();
+    };
   }, []);
 
   const handleSignOut = async () => {
@@ -59,7 +78,10 @@ export default function AppSidebar() {
 
   return (
     // Sichtbar ab md-Breakpoint
-    <aside className="hidden md:sticky md:top-0 md:flex md:h-svh md:w-64 md:flex-col md:border-r md:bg-card md:px-4 md:py-6">
+    <aside
+      className="hidden md:sticky md:top-0 md:flex md:h-svh md:w-64 md:flex-col md:border-r md:bg-card md:px-4 md:py-6"
+      aria-label="Hauptnavigation"
+    >
       <div className="flex h-full flex-col justify-between">
         {/* Brand + Nav */}
         <div>
