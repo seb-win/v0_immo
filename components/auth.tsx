@@ -54,12 +54,29 @@ export default function Auth({ supabaseClient, className }: AuthProps) {
     setError(null);
     setSubmitting(true);
     try {
-      const { error } = await client.auth.signInWithPassword({ email, password });
+      const { data, error } = await client.auth.signInWithPassword({ email, password });
       if (error) {
         setError(error.message);
         return;
       }
-      // Erfolgreicher Login → onAuthStateChange triggert in deiner App den Redirect.
+      const session = data.session;
+      if (!session) return;
+
+      const { data: profile } = await client
+        .from("profiles")
+        .select("role")
+        .eq("id", session.user.id)
+        .single();
+
+      if (profile?.role === "agent") {
+        router.replace("/leads");
+      } else if (profile?.role === "customer") {
+        router.replace("/customer");
+      } else {
+        await client.auth.signOut();
+        // Optional: Fehlerhinweis setzen
+        // setError("Unbekannte Rolle.");
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unbekannter Fehler beim Anmelden.");
     } finally {
