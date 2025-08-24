@@ -239,7 +239,7 @@ function readSort(input: string | null): SortSpec | undefined {
   const [field, direction] = input.split(":");
   if (!field || !direction) return;
   if (!["asc", "desc"].includes(direction)) return;
-  const allowed = new Set(["created_at", "full_name", "status", "city", "postal_code"]);
+  const allowed = new Set(["created_at", "full_name", "status", "city"]);
   if (!allowed.has(field)) return;
   return { field: field as SortSpec["field"], direction: direction as SortSpec["direction"] };
 }

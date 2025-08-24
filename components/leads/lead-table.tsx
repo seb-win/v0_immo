@@ -12,32 +12,33 @@ type LeadTableProps = {
   /** 1-basiert */
   page: number;
   pageSize: number;
-  /** Aktuelle Sortierung (optional) */
   sort?: SortSpec;
-  /** Sortierung ändern */
   onSort?: (next: SortSpec) => void;
-  /** Seitenwechsel (1-basiert) */
   onPageChange?: (page: number) => void;
-  /** Zeige Ladezustand */
   isLoading?: boolean;
   className?: string;
 };
 
-type SortableField = SortSpec["field"];
+type SortableField = Extract<SortSpec["field"], "full_name" | "city" | "created_at" | "status">;
 
 const SORTABLE_COLUMNS: { key: SortableField; label: string }[] = [
   { key: "full_name", label: "Name" },
-  { key: "postal_code", label: "PLZ" },
-  { key: "city", label: "Ort" },
+  { key: "city", label: "Ort" },               // sortiert nach city
   { key: "created_at", label: "Eingegangen am" },
   { key: "status", label: "Status" },
 ];
 
-function formatAddress(lead: Lead) {
-  if (lead.addressText) return lead.addressText;
-  const parts = [lead.street, lead.postalCode, lead.city].filter(Boolean);
+function formatLocation(lead: Lead) {
+  // 1) addressText bevorzugen (falls vorhanden – enthält i.d.R. Straße + Hausnr.)
+  if (lead.addressText && lead.addressText.trim()) return lead.addressText.trim();
+
+  // 2) Fallback: street, postalCode city
+  const parts: string[] = [];
+  if (lead.street) parts.push(lead.street);
+  const cityParts = [lead.postalCode, lead.city].filter(Boolean).join(" ");
+  if (cityParts) parts.push(cityParts);
+
   if (parts.length === 0) return "—";
-  if (parts.length === 3) return `${parts[0]}, ${parts[1]} ${parts[2]}`;
   return parts.join(", ");
 }
 
@@ -140,7 +141,7 @@ export default function LeadTable({
               rows.map((lead) => (
                 <tr key={lead.id} className="border-t">
                   <td className="font-medium">{lead.fullName || "—"}</td>
-                  <td>{formatAddress(lead)}</td>
+                  <td>{formatLocation(lead)}</td>
                   <td>{formatDateTime(lead.createdAt)}</td>
                   <td>
                     <LeadStatusBadge status={lead.status} />
