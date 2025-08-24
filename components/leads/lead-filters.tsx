@@ -1,11 +1,12 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Filter, ChevronDown, Check, X, Calendar as CalendarIcon, Search } from "lucide-react";
+import { Filter, ChevronDown, Check, Calendar as CalendarIcon, Search } from "lucide-react";
 import type { LeadStatus } from "@/lib/types/lead";
 import { LEAD_STATUSES, LEAD_STATUS_LABEL } from "@/lib/types/lead";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import LeadStatusBadge from "@/components/leads/lead-status-badge";
 
 type LeadFiltersChange = {
   q?: string;
@@ -15,55 +16,33 @@ type LeadFiltersChange = {
 };
 
 type LeadFiltersProps = {
-  /** Initialwerte (optional) */
   defaultQ?: string;
   defaultStatuses?: LeadStatus[];
   defaultDateFrom?: string | Date;
   defaultDateTo?: string | Date;
-  /** Callback bei Änderungen */
   onChange: (filters: LeadFiltersChange) => void;
-  /** Optionaler "Alles zurücksetzen"-Handler auf der Seite */
   onClearAll?: () => void;
-  /** Debounce für Suche (ms) – Standard 300 */
   debounceMs?: number;
   className?: string;
 };
 
-/* --------------------------------- Helpers -------------------------------- */
-
 const cx = (...c: Array<string | false | null | undefined>) => c.filter(Boolean).join(" ");
 
-function toISO(input?: string | Date): string | undefined {
-  if (!input) return undefined;
-  if (input instanceof Date) return input.toISOString();
-  // already ISO?
-  if (/^\d{4}-\d{2}-\d{2}T/.test(input)) return input;
-  // interpret as date-only (yyyy-mm-dd), convert to start-of-day UTC
-  if (/^\d{4}-\d{2}-\d{2}$/.test(input)) return new Date(input + "T00:00:00.000Z").toISOString();
-  const d = new Date(input);
-  return isNaN(d.getTime()) ? undefined : d.toISOString();
-}
-
-/** date-only (yyyy-mm-dd) aus ISO */
 function toDateOnly(iso?: string | Date): string | undefined {
   if (!iso) return undefined;
   const d = iso instanceof Date ? iso : new Date(iso);
   if (isNaN(d.getTime())) return undefined;
-  // yyyy-mm-dd (lokal egal, wir zeigen nur Datum)
   const y = d.getUTCFullYear();
   const m = String(d.getUTCMonth() + 1).padStart(2, "0");
   const day = String(d.getUTCDate()).padStart(2, "0");
   return `${y}-${m}-${day}`;
 }
-
 function startOfDayISO(dateOnly: string): string {
   return new Date(dateOnly + "T00:00:00.000Z").toISOString();
 }
 function endOfDayISO(dateOnly: string): string {
   return new Date(dateOnly + "T23:59:59.999Z").toISOString();
 }
-
-/* -------------------------------- Component -------------------------------- */
 
 export default function LeadFilters({
   defaultQ,
@@ -75,31 +54,58 @@ export default function LeadFilters({
   debounceMs = 300,
   className,
 }: LeadFiltersProps) {
-  // Local state
   const [q, setQ] = useState<string>(defaultQ ?? "");
   const [statusOpen, setStatusOpen] = useState(false);
   const [selected, setSelected] = useState<LeadStatus[]>(defaultStatuses ?? []);
   const [dateFrom, setDateFrom] = useState<string | undefined>(() => toDateOnly(defaultDateFrom));
   const [dateTo, setDateTo] = useState<string | undefined>(() => toDateOnly(defaultDateTo));
 
-  // Debounce search
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Refs für Outside-Click
+  const btnRef = useRef<HTMLButtonElement | null>(null);
+  const menuRef = useRef<HTMLDivElement | null>(null);
+
+  // Initial-Emit verhindern (beugt Ping-Pong vor)
+  const firstRef = useRef(true);
+
+  // Debounced Suche
   useEffect(() => {
-    if (timerRef.current) clearTimeout(timerRef.current);
-    timerRef.current = setTimeout(() => {
+    const t = setTimeout(() => {
+      if (firstRef.current) {
+        firstRef.current = false;
+        return;
+      }
       emitChange();
     }, debounceMs);
-    return () => {
-      if (timerRef.current) clearTimeout(timerRef.current);
-    };
+    return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [q]);
 
-  // Emit when filters (other than q) change
+  // Emit bei Status/Datum – außer beim allerersten Mount
   useEffect(() => {
+    if (firstRef.current) return;
     emitChange();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selected, dateFrom, dateTo]);
+
+  // Outside click schließt das Menü
+  useEffect(() => {
+    if (!statusOpen) return;
+    const onDown = (e: MouseEvent) => {
+      const target = e.target as Node;
+      if (menuRef.current?.contains(target)) return;
+      if (btnRef.current?.contains(target)) return;
+      setStatusOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setStatusOpen(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [statusOpen]);
 
   const selectedCount = selected.length;
   const selectedLabel = useMemo(() => {
@@ -112,10 +118,7 @@ export default function LeadFilters({
     setSelected((prev) =>
       prev.includes(s) ? prev.filter((x) => x !== s) : [...prev, s]
     );
-  }
-
-  function clearStatuses() {
-    setSelected([]);
+    // kein „Anwenden“ nötig – emitChange kommt durch useEffect
   }
 
   function resetAll() {
@@ -124,7 +127,7 @@ export default function LeadFilters({
     setDateFrom(undefined);
     setDateTo(undefined);
     onClearAll?.();
-    // emitChange() wird durch useEffect getriggert
+    // emitChange folgt automatisch (nicht initial)
   }
 
   function emitChange() {
@@ -140,7 +143,7 @@ export default function LeadFilters({
   return (
     <div className={cx("rounded-md border bg-card p-3 md:p-4", className)}>
       <div className="flex flex-col gap-3 md:flex-row md:items-center md:gap-3">
-        {/* Search */}
+        {/* Suche */}
         <div className="relative flex-1 min-w-[220px]">
           <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
           <Input
@@ -152,9 +155,10 @@ export default function LeadFilters({
           />
         </div>
 
-        {/* Status Dropdown (simple popover) */}
+        {/* Status Dropdown – ohne Zurücksetzen/Anwenden */}
         <div className="relative">
           <Button
+            ref={btnRef}
             type="button"
             variant="outline"
             className="inline-flex items-center gap-2"
@@ -171,9 +175,10 @@ export default function LeadFilters({
           {statusOpen && (
             <div
               id="status-menu"
+              ref={menuRef}
               role="menu"
               aria-label="Status filtern"
-              className="absolute z-20 mt-2 w-56 rounded-md border bg-popover p-2 shadow-md"
+              className="absolute z-20 mt-2 w-64 rounded-md border bg-popover p-2 shadow-md"
             >
               <div className="max-h-64 overflow-auto pr-1">
                 {LEAD_STATUSES.map((s) => {
@@ -186,41 +191,25 @@ export default function LeadFilters({
                       type="button"
                       onClick={() => toggleStatus(s)}
                       className={cx(
-                        "flex w-full items-center justify-between rounded-sm px-2 py-1.5 text-sm",
+                        "flex w-full items-center justify-between rounded-sm px-2 py-2 text-sm",
                         active ? "bg-accent text-accent-foreground" : "hover:bg-accent hover:text-accent-foreground"
                       )}
                     >
-                      <span>{LEAD_STATUS_LABEL[s]}</span>
+                      <span className="inline-flex items-center gap-2">
+                        {/* Farbigkeit exakt wie in der Tabelle */}
+                        <LeadStatusBadge status={s} />
+                        <span>{LEAD_STATUS_LABEL[s]}</span>
+                      </span>
                       {active && <Check className="h-4 w-4" />}
                     </button>
                   );
                 })}
               </div>
-
-              <div className="mt-2 flex items-center justify-between gap-2">
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  onClick={clearStatuses}
-                  className="gap-1"
-                >
-                  <X className="h-4 w-4" />
-                  Zurücksetzen
-                </Button>
-                <Button
-                  type="button"
-                  size="sm"
-                  onClick={() => setStatusOpen(false)}
-                >
-                  Anwenden
-                </Button>
-              </div>
             </div>
           )}
         </div>
 
-        {/* Date range */}
+        {/* Datumsbereich */}
         <div className="flex items-center gap-2">
           <div className="relative">
             <CalendarIcon className="pointer-events-none absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
@@ -245,7 +234,7 @@ export default function LeadFilters({
           </div>
         </div>
 
-        {/* Clear all */}
+        {/* Alle Filter löschen (global, außerhalb des Popups) */}
         <div className="md:ml-auto">
           <Button
             type="button"
@@ -254,7 +243,8 @@ export default function LeadFilters({
             className="gap-2"
             aria-label="Alle Filter zurücksetzen"
           >
-            <X className="h-4 w-4" />
+            {/* kleines „x“ optional – du kannst es beibehalten oder entfernen */}
+            {/* <X className="h-4 w-4" /> */}
             Alle Filter löschen
           </Button>
         </div>
