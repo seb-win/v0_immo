@@ -16,7 +16,9 @@ export default function Home() {
   const [fullName, setFullName] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
   const hasRedirectedRef = useRef(false);
+  const signingOutRef = useRef(false);
 
   const debug = (message: string) => {
     // eslint-disable-next-line no-console
@@ -60,7 +62,7 @@ export default function Home() {
         setUser(null);
         setRole(null);
         setFullName(null);
-        hasRedirectedRef.current = false; // allow future redirects after login
+        hasRedirectedRef.current = false;
       }
     });
 
@@ -71,7 +73,7 @@ export default function Home() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Redirect-Effekt: Sobald Nutzer eingeloggt und Rolle "agent" bekannt → /leads
+  // Redirect für Agents → /leads
   useEffect(() => {
     if (!user || !role) return;
     if (role === "agent" && !hasRedirectedRef.current) {
@@ -79,6 +81,24 @@ export default function Home() {
       router.replace("/leads");
     }
   }, [user, role, router]);
+
+  // 🛡️ Fallback: User eingeloggt aber Rolle unbekannt → sofort ausloggen & Auth zeigen
+  useEffect(() => {
+    if (loading) return;
+    if (!user) return;
+    const known = role === "agent" || role === "customer";
+    if (!known && !signingOutRef.current) {
+      signingOutRef.current = true;
+      debug("Unknown role → signing out to show Auth");
+      supabase.auth.signOut().finally(() => {
+        setUser(null);
+        setRole(null);
+        setFullName(null);
+        hasRedirectedRef.current = false;
+        signingOutRef.current = false;
+      });
+    }
+  }, [user, role, loading]);
 
   const initializeSupabase = async () => {
     setError(null);
@@ -122,19 +142,19 @@ export default function Home() {
     initializeSupabase();
   };
 
-  // === Render Logic ===
+  // === Render ===
 
   if (error) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-gray-50">
         <div className="w-full max-w-md p-6 bg-white rounded-lg shadow-md">
-          <div className="flex items-center gap-2 text-red-600 mb-4">
-            <AlertCircle className="w-6 h-6" />
+          <div className="mb-4 flex items-center gap-2 text-red-600">
+            <AlertCircle className="h-6 w-6" />
             <h2 className="text-xl font-semibold">Connection Error</h2>
           </div>
           <p className="mb-4 text-gray-700">{error}</p>
           <Button onClick={handleRetry} className="w-full">
-            <RefreshCw className="w-4 h-4 mr-2" />
+            <RefreshCw className="mr-2 h-4 w-4" />
             Retry
           </Button>
         </div>
@@ -151,19 +171,15 @@ export default function Home() {
   // Eingeloggt + Rolle "agent": Redirect läuft (siehe useEffect) → kleinen Loader anzeigen
   if (role === "agent") {
     return (
-      <div className="flex items-center justify-center min-h-screen">
+      <div className="flex min-h-screen items-center justify-center">
         <p className="text-gray-600">Weiterleitung zu deinen Leads …</p>
       </div>
     );
   }
 
-  // Kunde → eigene Seite rendern
+  // Kunde → eigene Seite
   if (role === "customer") return <CustomerPage fullName={fullName} />;
 
-  // Fallback
-  return (
-    <div className="flex items-center justify-center min-h-screen">
-      <p className="text-gray-600">User has no assigned role.</p>
-    </div>
-  );
+  // Eingeloggt aber Rolle unbekannt → wir stoßen gerade signOut an; zeige Auth-UI
+  return <Auth supabaseClient={supabase} />;
 }
