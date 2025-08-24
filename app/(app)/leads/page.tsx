@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import ListToolbar from "@/components/leads/list-toolbar";
 import LeadFilters from "@/components/leads/lead-filters";
@@ -46,31 +46,30 @@ function LeadsPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
-  // 👇 Alle Steuerwerte rein aus der URL ableiten (keine lokalen Mirror-States)
+  // URL → Steuerwerte
   const filters: FiltersState = useMemo(() => readFiltersFromURL(searchParams), [searchParams]);
   const page = useMemo(() => readNumber(searchParams.get("page")) ?? DEFAULT_PAGE, [searchParams]);
-  const pageSize = DEFAULT_PAGE_SIZE; // (konstant – UI zum Ändern fehlt aktuell)
+  const pageSize = DEFAULT_PAGE_SIZE; // (konstant)
   const sort = useMemo(() => readSort(searchParams.get("sort")), [searchParams]);
 
+  // Daten
   const [rows, setRows] = useState<Lead[]>([]);
   const [total, setTotal] = useState<number>(0);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [newOpen, setNewOpen] = useState(false);
 
-  // Daten laden, sobald URL-getriebene Steuerwerte sich ändern
+  // Reload-Guard für Navigation: merkt sich die zuletzt gesetzte Query
+  const lastQsRef = useRef<string | null>(null);
+
+  // Daten laden
   useEffect(() => {
     let alive = true;
     (async () => {
       setIsLoading(true);
       setError(null);
       try {
-        const { data, total: t } = await listLeads({
-          ...filters,
-          page,
-          pageSize,
-          sort,
-        });
+        const { data, total: t } = await listLeads({ ...filters, page, pageSize, sort });
         if (!alive) return;
         setRows(data);
         setTotal(t);
@@ -87,32 +86,32 @@ function LeadsPageContent() {
     };
   }, [filters, page, pageSize, sort]);
 
-  // Nur dann die URL ändern, wenn sich die Query wirklich ändert
+  // Kanonische Query bauen & nur bei realer Änderung navigieren
   const updateURL = useCallback((next: {
     filters?: FiltersState;
     page?: number;
     sort?: SortSpec | undefined;
   }) => {
-    const sp = new URLSearchParams();
-
     const f = next.filters ?? filters;
-    if (f.q) sp.set("q", f.q);
-    (f.statuses ?? []).forEach((s) => sp.append("status", s));
-    if (f.dateFrom) sp.set("from", f.dateFrom);
-    if (f.dateTo) sp.set("to", f.dateTo);
-
     const p = next.page ?? page;
-    if (p && p !== DEFAULT_PAGE) sp.set("page", String(p));
-
-    if (pageSize && pageSize !== DEFAULT_PAGE_SIZE) sp.set("pageSize", String(pageSize));
-
     const s = next.sort ?? sort;
-    if (s) sp.set("sort", `${s.field}:${s.direction}`);
 
-    const qs = sp.toString();
+    const qs = buildCanonicalQS({
+      q: f.q,
+      statuses: f.statuses,
+      dateFrom: f.dateFrom,
+      dateTo: f.dateTo,
+      page: p,
+      pageSize,
+      sort: s,
+    });
+
     const prevQs = searchParams.toString();
-    if (qs === prevQs) return; // ✅ vermeidet Ping-Pong
+    if (qs === prevQs || qs === (lastQsRef.current ?? "")) {
+      return; // keine echte Änderung → keine Navigation
+    }
 
+    lastQsRef.current = qs;
     router.replace(qs ? `/leads?${qs}` : "/leads", { scroll: false });
   }, [filters, page, pageSize, sort, router, searchParams]);
 
@@ -137,7 +136,7 @@ function LeadsPageContent() {
 
   const handleCreated = () => {
     setNewOpen(false);
-    updateURL({ page: 1 }); // nach Anlage zurück zu Seite 1 & neu laden
+    updateURL({ page: 1 });
   };
 
   /* ------------------------- Chips aus URL ------------------------- */
@@ -251,6 +250,39 @@ function readFiltersFromURL(sp: ReturnType<typeof useSearchParams>): FiltersStat
   const dateFrom = sp.get("from") ?? undefined;
   const dateTo = sp.get("to") ?? undefined;
   return { q, statuses: statuses.length ? statuses : undefined, dateFrom, dateTo };
+}
+
+/** stabile, kanonische QS: feste Key-Reihenfolge + sortierte Mehrfachwerte */
+function buildCanonicalQS(opts: {
+  q?: string;
+  statuses?: LeadStatus[];
+  dateFrom?: string;
+  dateTo?: string;
+  page?: number;
+  pageSize?: number;
+  sort?: SortSpec | undefined;
+}) {
+  const sp = new URLSearchParams();
+
+  // 1) feste Reihenfolge der Keys
+  if (opts.q) sp.set("q", opts.q);
+
+  // 2) Mehrfachwerte sortieren (verhindert Reorder-Ping-Pong)
+  const sts = (opts.statuses ?? []).slice().sort();
+  for (const s of sts) sp.append("status", s);
+
+  if (opts.dateFrom) sp.set("from", opts.dateFrom);
+  if (opts.dateTo) sp.set("to", opts.dateTo);
+
+  // 3) page nur wenn != DEFAULT_PAGE
+  if (opts.page && opts.page !== DEFAULT_PAGE) sp.set("page", String(opts.page));
+
+  // 4) pageSize nur wenn != DEFAULT_PAGE_SIZE (derzeit gleichbleibend)
+  if (opts.pageSize && opts.pageSize !== DEFAULT_PAGE_SIZE) sp.set("pageSize", String(opts.pageSize));
+
+  if (opts.sort) sp.set("sort", `${opts.sort.field}:${opts.sort.direction}`);
+
+  return sp.toString();
 }
 
 function formatDateChip(iso: string): string {
