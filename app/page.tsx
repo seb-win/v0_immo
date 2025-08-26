@@ -12,6 +12,7 @@ export default function Home() {
 
   useEffect(() => {
     let alive = true;
+    let watchdog: ReturnType<typeof setTimeout> | null = null;
 
     async function boot() {
       try {
@@ -23,25 +24,27 @@ export default function Home() {
           return;
         }
 
-        // Rolle abfragen – robust, Fehler => Logout + Login zeigen
+        // Watchdog: falls Profile-Query hängt
+        watchdog = setTimeout(async () => {
+          if (!alive) return;
+          console.warn("[HOME] watchdog fired → signOut fallback");
+          await supabase.auth.signOut();
+          setReady(true);
+        }, 6000);
+
         const { data: profile, error } = await supabase
           .from("profiles")
           .select("role")
           .eq("id", session.user.id)
           .maybeSingle();
 
+        if (watchdog) clearTimeout(watchdog);
+
         if (error) throw error;
 
-        if (profile?.role === "agent") {
-          router.replace("/leads");
-          return;
-        }
-        if (profile?.role === "customer") {
-          router.replace("/customer");
-          return;
-        }
+        if (profile?.role === "agent") return router.replace("/leads");
+        if (profile?.role === "customer") return router.replace("/customer");
 
-        // Unbekannte/fehlende Rolle -> hart abmelden
         await supabase.auth.signOut();
         if (alive) setReady(true);
       } catch (e) {
@@ -53,7 +56,6 @@ export default function Home() {
 
     void boot();
 
-    // Auth-Events (fallback)
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_evt, session) => {
       if (!alive) return;
       if (!session) {
@@ -67,7 +69,6 @@ export default function Home() {
           .eq("id", session.user.id)
           .maybeSingle();
         if (error) throw error;
-
         if (profile?.role === "agent") router.replace("/leads");
         else if (profile?.role === "customer") router.replace("/customer");
         else {
@@ -83,9 +84,11 @@ export default function Home() {
 
     return () => {
       alive = false;
+      if (watchdog) clearTimeout(watchdog);
       subscription.unsubscribe();
     };
   }, [router]);
+
 
   if (!ready) {
     return (

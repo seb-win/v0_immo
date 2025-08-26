@@ -26,6 +26,7 @@ function AuthRoleGate({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     let alive = true;
+    let watchdog: ReturnType<typeof setTimeout> | null = null;
 
     async function check() {
       try {
@@ -38,11 +39,21 @@ function AuthRoleGate({ children }: { children: ReactNode }) {
           return;
         }
 
+        watchdog = setTimeout(async () => {
+          if (!alive) return;
+          console.warn("[(app)/layout] watchdog fired → signOut fallback");
+          await supabase.auth.signOut();
+          setState("redirecting");
+          router.replace("/");
+        }, 6000);
+
         const { data: profile, error } = await supabase
           .from("profiles")
           .select("role")
           .eq("id", session.user.id)
           .maybeSingle();
+
+        if (watchdog) clearTimeout(watchdog);
 
         if (error) throw error;
 
@@ -57,7 +68,6 @@ function AuthRoleGate({ children }: { children: ReactNode }) {
           return;
         }
 
-        // Unbekannte Rolle
         await supabase.auth.signOut();
         if (!alive) return;
         setState("redirecting");
@@ -83,9 +93,11 @@ function AuthRoleGate({ children }: { children: ReactNode }) {
 
     return () => {
       alive = false;
+      if (watchdog) clearTimeout(watchdog);
       subscription.unsubscribe();
     };
   }, [router]);
+
 
   if (state === "checking") {
     return (
