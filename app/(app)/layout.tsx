@@ -22,35 +22,51 @@ export default function AppLayout({ children }: { children: ReactNode }) {
 
 function AuthRoleGate({ children }: { children: ReactNode }) {
   const router = useRouter();
-  const [allowed, setAllowed] = useState<null | boolean>(null);
+  const [state, setState] = useState<"checking" | "allowed" | "redirecting">("checking");
 
   useEffect(() => {
     let alive = true;
 
     async function check() {
-      const { data } = await supabase.auth.getSession();
-      const session = data.session;
-      if (!session) {
-        setAllowed(false);
-        router.replace("/");
-        return;
-      }
-      const { data: profile } = await supabase
-        .from("profiles")
-        .select("role")
-        .eq("id", session.user.id)
-        .single();
+      try {
+        const { data: sessData } = await supabase.auth.getSession();
+        const session = sessData.session;
+        if (!session) {
+          if (!alive) return;
+          setState("redirecting");
+          router.replace("/");
+          return;
+        }
 
-      if (!alive) return;
+        const { data: profile, error } = await supabase
+          .from("profiles")
+          .select("role")
+          .eq("id", session.user.id)
+          .maybeSingle();
 
-      if (profile?.role === "agent") {
-        setAllowed(true);
-      } else if (profile?.role === "customer") {
-        setAllowed(false);
-        router.replace("/customer");
-      } else {
-        setAllowed(false);
+        if (error) throw error;
+
+        if (profile?.role === "agent") {
+          if (alive) setState("allowed");
+          return;
+        }
+        if (profile?.role === "customer") {
+          if (!alive) return;
+          setState("redirecting");
+          router.replace("/customer");
+          return;
+        }
+
+        // Unbekannte Rolle
         await supabase.auth.signOut();
+        if (!alive) return;
+        setState("redirecting");
+        router.replace("/");
+      } catch (e) {
+        console.warn("[(app)/layout] role check error:", e);
+        await supabase.auth.signOut();
+        if (!alive) return;
+        setState("redirecting");
         router.replace("/");
       }
     }
@@ -60,7 +76,7 @@ function AuthRoleGate({ children }: { children: ReactNode }) {
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_evt, session) => {
       if (!alive) return;
       if (!session) {
-        setAllowed(false);
+        setState("redirecting");
         router.replace("/");
       }
     });
@@ -71,7 +87,7 @@ function AuthRoleGate({ children }: { children: ReactNode }) {
     };
   }, [router]);
 
-  if (allowed === null) {
+  if (state === "checking") {
     return (
       <div className="flex min-h-svh items-center justify-center text-sm text-muted-foreground">
         Zugang prüfen …
@@ -79,7 +95,7 @@ function AuthRoleGate({ children }: { children: ReactNode }) {
     );
   }
 
-  if (!allowed) {
+  if (state === "redirecting") {
     return (
       <div className="flex min-h-svh items-center justify-center text-sm text-muted-foreground">
         Weiterleitung …

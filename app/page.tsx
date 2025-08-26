@@ -14,50 +14,70 @@ export default function Home() {
     let alive = true;
 
     async function boot() {
-      const { data } = await supabase.auth.getSession();
-      const session = data.session;
+      try {
+        const { data: sessData } = await supabase.auth.getSession();
+        const session = sessData.session;
 
-      if (session) {
-        // Rolle abfragen und passend weiterleiten
-        const { data: profile } = await supabase
+        if (!session) {
+          if (alive) setReady(true);
+          return;
+        }
+
+        // Rolle abfragen – robust, Fehler => Logout + Login zeigen
+        const { data: profile, error } = await supabase
           .from("profiles")
           .select("role")
           .eq("id", session.user.id)
-          .single();
+          .maybeSingle();
+
+        if (error) throw error;
 
         if (profile?.role === "agent") {
           router.replace("/leads");
-        } else if (profile?.role === "customer") {
-          router.replace("/customer");
-        } else {
-          // unbekannte Rolle -> zurück zum Login (oder Signout)
-          await supabase.auth.signOut();
-          setReady(true);
+          return;
         }
-      } else {
-        setReady(true);
+        if (profile?.role === "customer") {
+          router.replace("/customer");
+          return;
+        }
+
+        // Unbekannte/fehlende Rolle -> hart abmelden
+        await supabase.auth.signOut();
+        if (alive) setReady(true);
+      } catch (e) {
+        console.warn("[HOME] boot error:", e);
+        await supabase.auth.signOut();
+        if (alive) setReady(true);
       }
     }
 
     void boot();
 
+    // Auth-Events (fallback)
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_evt, session) => {
       if (!alive) return;
-      if (session) {
-        const { data: profile } = await supabase
+      if (!session) {
+        setReady(true);
+        return;
+      }
+      try {
+        const { data: profile, error } = await supabase
           .from("profiles")
           .select("role")
           .eq("id", session.user.id)
-          .single();
+          .maybeSingle();
+        if (error) throw error;
 
-        if (profile?.role === "agent") {
-          router.replace("/leads");
-        } else if (profile?.role === "customer") {
-          router.replace("/customer");
-        } else {
+        if (profile?.role === "agent") router.replace("/leads");
+        else if (profile?.role === "customer") router.replace("/customer");
+        else {
           await supabase.auth.signOut();
           setReady(true);
         }
+      } catch (e) {
+        console.warn("[HOME] onAuthStateChange error:", e);
+        await supabase.auth.signOut();
+        setReady(true);
       }
     });
 
