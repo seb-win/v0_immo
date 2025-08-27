@@ -13,7 +13,7 @@ export default function DocumentUploadButton({
   propertyId: string;
   propertyDocumentId: string;
   documentTypeKey: string;
-  onUploaded: () => void;
+  onUploaded: () => void; // parent kann auch eine async-Funktion übergeben
 }) {
   const supabase = useMemo(() => supabaseBrowser(), []);
   const repo = useMemo(() => createDocumentsRepo(supabase), [supabase]);
@@ -25,6 +25,7 @@ export default function DocumentUploadButton({
     try {
       const user = await supabase.auth.getUser();
       const uid = user.data.user?.id as string;
+      if (!uid) throw new Error('Nicht eingeloggt');
 
       const path = repo.buildStoragePath({
         bucket: 'documents',
@@ -34,24 +35,52 @@ export default function DocumentUploadButton({
         originalFilename: file.name,
       });
 
-      const uploadRes = await supabase.storage.from('documents').upload(path, file, { upsert: false });
+      const uploadRes = await supabase.storage
+        .from('documents')
+        .upload(path, file, { upsert: false });
+
       if (uploadRes.error) throw uploadRes.error;
 
-      const meta = { filename: file.name, ext: file.name.split('.').pop(), mime_type: file.type, size: file.size, is_shared_with_customer: true };
-      const reg = await repo.registerUploadedFile(propertyDocumentId, meta, uid, path);
+      const meta = {
+        filename: file.name,
+        ext: file.name.split('.').pop(),
+        mime_type: file.type,
+        size: file.size,
+        is_shared_with_customer: true,
+      };
+
+      const reg = await repo.registerUploadedFile(
+        propertyDocumentId,
+        meta,
+        uid,
+        path
+      );
       if (!reg.ok) throw new Error(reg.error.message || 'register failed');
 
+      // Parent benachrichtigen (darf async sein)
       onUploaded();
     } catch (e: any) {
-      alert(`Upload fehlgeschlagen: ${e.message ?? e}`);
+      alert(`Upload fehlgeschlagen: ${e?.message ?? e}`);
     } finally {
+      // Input resetten, damit dieselbe Datei erneut gewählt werden kann
+      if (fileInput.current) fileInput.current.value = '';
       setBusy(false);
     }
   }
 
   return (
     <div>
-      <input ref={fileInput} type="file" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) handleFile(f); }} />
+      <input
+        ref={fileInput}
+        type="file"
+        className="hidden"
+        // optional: Dateitypen einschränken
+        accept=".pdf,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg,.webp,.gif,.txt,.rtf"
+        onChange={(e) => {
+          const f = e.target.files?.[0];
+          if (f) handleFile(f);
+        }}
+      />
       <button
         className="px-3 py-2 border rounded hover:bg-gray-50 disabled:opacity-50"
         onClick={() => fileInput.current?.click()}

@@ -47,6 +47,20 @@ export default function DocumentsTab({ propertyId }: Props) {
     return () => { cancelled = true; };
   }, [propertyId]);
 
+    // Rolle (agent/customer) laden und isAgent setzen
+  useEffect(() => {
+    let cancelled = false;
+    async function loadRole() {
+      const { data } = await supabase.auth.getUser();
+      const uid = data.user?.id;
+      if (!uid) return;
+      const { data: prof } = await supabase.from('profiles').select('role').eq('id', uid).single();
+      if (!cancelled && prof?.role) setIsAgent(prof.role === 'agent');
+    }
+    loadRole();
+    return () => { cancelled = true; };
+  }, [supabase]);
+
   // Dateien & Notes laden, wenn Dokument gewählt
   useEffect(() => {
     let cancelled = false;
@@ -105,8 +119,14 @@ export default function DocumentsTab({ propertyId }: Props) {
                 propertyDocumentId={selectedDoc.id}
                 documentTypeKey={documentTypeKey}
                 onUploaded={async () => {
-                  const r = await repo.listFiles(selectedDoc.id);
-                  if (r.ok) setFiles(r.data);
+                  // Dateien neu laden + Platzhalterliste refreshten,
+                  // damit das Status-Badge sofort „Hochgeladen“ zeigt.
+                  const [r1, r2] = await Promise.all([
+                    repo.listFiles(selectedDoc.id),
+                    repo.listPropertyDocuments(propertyId),
+                  ]);
+                  if (r1.ok) setFiles(r1.data);
+                  if (r2.ok) setDocs(r2.data.items);
                 }}
               />
               {/* Platzhalter Statusanzeige */}

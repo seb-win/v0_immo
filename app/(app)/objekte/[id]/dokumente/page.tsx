@@ -1,12 +1,13 @@
 import DocumentsTab from '@/components/documents/DocumentsTab';
+import Protected from '@/components/auth/Protected';
 
-
-export default async function DokumentePage({ params }: { params: { id: string } }) {
-// Server Component Wrapper – gibt nur die PropertyId an die Client-Komponente weiter
-const propertyId = params.id;
-return (
-<div className="p-4">
-<DocumentsTab propertyId={propertyId} />
-</div>
-);
+export default function DokumentePage({ params }: { params: { id: string } }) {
+  const propertyId = params.id;
+  return (
+    <Protected>
+      <div className="p-4">
+        <DocumentsTab propertyId={propertyId} />
+      </div>
+    </Protected>
+  );
 }
