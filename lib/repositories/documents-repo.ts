@@ -62,7 +62,6 @@ function applyListOptions(query: any, options?: ListOptions) {
 
 function randUUID(): string {
   try {
-    // Browser/modern Node
     // @ts-ignore
     if (typeof crypto !== 'undefined' && crypto?.randomUUID) return crypto.randomUUID();
   } catch {}
@@ -120,7 +119,10 @@ export function createDocumentsRepo(supabase: SupabaseClient): DocumentsRepo {
       }
     },
 
-    async function listPropertyDocuments(propertyId: UUID, options?: ListOptions): Promise<Result<Page<PropertyDocumentSummary>>> {
+    // --------------------------------------------------
+    // Platzhalter-Liste (mit Aggregation für NEU-Badge)
+    // --------------------------------------------------
+    async listPropertyDocuments(propertyId: UUID, options?: ListOptions): Promise<Result<Page<PropertyDocumentSummary>>> {
       try {
         // 1) Grunddaten je Platzhalter
         let q = supabase
@@ -193,7 +195,7 @@ export function createDocumentsRepo(supabase: SupabaseClient): DocumentsRepo {
               key: row.type.key,
               label: row.type.label,
               is_active: true,
-              created_at: new Date(0).toISOString(),
+              created_at: new Date(0).toISOString(), // im UI nicht benötigt
             } : undefined,
             file_count: agg.file_count,
             last_file_at: agg.last_file_at,
@@ -206,7 +208,6 @@ export function createDocumentsRepo(supabase: SupabaseClient): DocumentsRepo {
         return { ok: false, error: mapError('unknown', 'listPropertyDocuments failed', e) };
       }
     },
-
 
     async getPropertyDocument(id: UUID): Promise<Result<PropertyDocument>> {
       try {
