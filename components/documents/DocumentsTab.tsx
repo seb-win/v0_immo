@@ -3,12 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { supabaseBrowser } from '@/lib/supabase/client';
 import { createDocumentsRepo } from '@/lib/repositories/documents-repo';
-import type {
-  DocumentFile,
-  DocumentNote,
-  DocumentStatus,
-  PropertyDocumentSummary,
-} from '@/lib/repositories/contracts';
+import type { DocumentFile, DocumentNote, DocumentStatus, PropertyDocumentSummary } from '@/lib/repositories/contracts';
 import DocumentListPanel from './DocumentListPanel';
 import DocumentAddModal from './DocumentAddModal';
 import DocumentUploadButton from './DocumentUploadButton';
@@ -28,13 +23,13 @@ export default function DocumentsTab({ propertyId }: Props) {
   const [files, setFiles] = useState<DocumentFile[]>([]);
   const [selectedFile, setSelectedFile] = useState<DocumentFile | null>(null);
   const [notes, setNotes] = useState<DocumentNote[]>([]);
-  const [isAgent, setIsAgent] = useState<boolean>(true); // dynamisch via profiles.role
+  const [isAgent, setIsAgent] = useState<boolean>(true); // TODO: Rolle aus Profile laden
   const [collapsed, setCollapsed] = useState<boolean>(false);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   const [showAdd, setShowAdd] = useState<boolean>(false);
 
-  // Initial laden (Platzhalterliste)
+  // Initial laden
   useEffect(() => {
     let cancelled = false;
     async function load() {
@@ -50,55 +45,21 @@ export default function DocumentsTab({ propertyId }: Props) {
     }
     load();
     return () => { cancelled = true; };
-  }, [propertyId, repo]);
+  }, [propertyId]);
 
-  // Rolle (agent/customer) laden und isAgent setzen
+    // Rolle (agent/customer) laden und isAgent setzen
   useEffect(() => {
     let cancelled = false;
     async function loadRole() {
       const { data } = await supabase.auth.getUser();
       const uid = data.user?.id;
       if (!uid) return;
-      const { data: prof } = await supabase
-        .from('profiles')
-        .select('role')
-        .eq('id', uid)
-        .single();
+      const { data: prof } = await supabase.from('profiles').select('role').eq('id', uid).single();
       if (!cancelled && prof?.role) setIsAgent(prof.role === 'agent');
     }
     loadRole();
     return () => { cancelled = true; };
   }, [supabase]);
-
-  // Customer-Access-Guard: hat der Customer Zugriff auf dieses Objekt?
-  useEffect(() => {
-    let cancelled = false;
-    async function guard() {
-      // Nur prüfen, wenn wir sicher KEIN Agent sind
-      if (isAgent === false) {
-        const { data: u } = await supabase.auth.getUser();
-        const uid = u.user?.id;
-        if (!uid) return;
-        const { data, error } = await supabase
-          .from('property_roles')
-          .select('property_id')
-          .eq('property_id', propertyId)
-          .eq('user_id', uid)
-          .eq('role', 'customer')
-          .maybeSingle();
-
-        if (!cancelled) {
-          if (error || !data) {
-            setError('Kein Zugriff auf dieses Objekt.');
-            setDocs([]);
-            setSelectedDocId(null);
-          }
-        }
-      }
-    }
-    guard();
-    return () => { cancelled = true; };
-  }, [isAgent, propertyId, supabase]);
 
   // Dateien & Notes laden, wenn Dokument gewählt
   useEffect(() => {
@@ -116,7 +77,7 @@ export default function DocumentsTab({ propertyId }: Props) {
     }
     loadDetails();
     return () => { cancelled = true; };
-  }, [selectedDocId, repo]);
+  }, [selectedDocId]);
 
   const selectedDoc = useMemo(() => docs.find(d => d.id === selectedDocId) ?? null, [docs, selectedDocId]);
   const documentTypeKey = selectedDoc?.type?.key ?? 'unknown';
@@ -148,13 +109,7 @@ export default function DocumentsTab({ propertyId }: Props) {
           <div className="space-y-4">
             <div className="flex items-center justify-between">
               <h2 className="text-xl font-semibold">{selectedDoc.type?.label ?? 'Dokument'}</h2>
-              {isAgent && (
-                <ReminderCard
-                  propertyDocumentId={selectedDoc.id}
-                  dueDate={selectedDoc.due_date ?? null}
-                  supplierEmail={selectedDoc.supplier_email ?? null}
-                />
-              )}
+              <ReminderCard propertyDocumentId={selectedDoc.id} dueDate={selectedDoc.due_date ?? null} supplierEmail={selectedDoc.supplier_email ?? null} />
             </div>
 
             {/* Upload + Fileliste */}
@@ -213,7 +168,7 @@ export default function DocumentsTab({ propertyId }: Props) {
         )}
       </div>
 
-      {showAdd && isAgent && (
+      {showAdd && (
         <DocumentAddModal
           propertyId={propertyId}
           onClose={() => setShowAdd(false)}
@@ -231,7 +186,7 @@ export default function DocumentsTab({ propertyId }: Props) {
 }
 
 function StatusBadge({ status }: { status: DocumentStatus }) {
-  const color =
-    status === 'uploaded'
-      ? 'bg-green-100 text-green-700'
-      : status === 'o
+  const color = status === 'uploaded' ? 'bg-green-100 text-green-700' : status === 'overdue' ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-700';
+  const label = status === 'uploaded' ? 'Hochgeladen' : status === 'overdue' ? 'Überfällig' : 'Ausstehend';
+  return <span className={`px-2 py-1 rounded text-sm ${color}`}>{label}</span>;
+}
