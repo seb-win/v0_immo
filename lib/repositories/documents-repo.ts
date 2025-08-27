@@ -120,7 +120,7 @@ export function createDocumentsRepo(supabase: SupabaseClient): DocumentsRepo {
       }
     },
 
-    async listPropertyDocuments(propertyId: UUID, options?: ListOptions): Promise<Result<Page<PropertyDocumentSummary>>> {
+    async function listPropertyDocuments(propertyId: UUID, options?: ListOptions): Promise<Result<Page<PropertyDocumentSummary>>> {
       try {
         // 1) Grunddaten je Platzhalter
         let q = supabase
@@ -140,7 +140,7 @@ export function createDocumentsRepo(supabase: SupabaseClient): DocumentsRepo {
           `)
           .eq('property_id', propertyId);
 
-        q = applyListOptions(q, options);
+        q = applyListOptions(q, options); // z. B. order('created_at', { ascending: true })
 
         const { data, error } = await q;
         if (error) return { ok: false, error: mapPostgrestToRepoError(error) };
@@ -148,22 +148,29 @@ export function createDocumentsRepo(supabase: SupabaseClient): DocumentsRepo {
         const itemsBase = (data ?? []) as any[];
         const ids = itemsBase.map(r => r.id) as UUID[];
 
-        // 2) Aggregation: file_count + last_file_at (robust per SQL-GroupBy)
+        // 2) Aggregation: file_count + last_file_at (kompatibel ohne .group())
+        //    Wir holen alle Files (nur id + created_at) für diese Platzhalter,
+        //    sortiert absteigend -> der erste Treffer pro Platzhalter ist last_file_at.
         let fileAggMap: Record<string, { file_count: number; last_file_at: string | null }> = {};
         if (ids.length > 0) {
-          const { data: agg, error: aggErr } = await supabase
+          const { data: files, error: filesErr } = await supabase
             .from('document_files')
-            .select('property_document_id, file_count:count(id), last_file_at:max(created_at)')
+            .select('property_document_id, created_at')
             .in('property_document_id', ids)
-            .group('property_document_id');
+            .order('created_at', { ascending: false });
 
-          if (aggErr) return { ok: false, error: mapPostgrestToRepoError(aggErr) };
+          if (filesErr) return { ok: false, error: mapPostgrestToRepoError(filesErr) };
 
-          for (const row of (agg ?? [])) {
-            fileAggMap[row.property_document_id as string] = {
-              file_count: Number(row.file_count) || 0,
-              last_file_at: (row.last_file_at as string) ?? null,
-            };
+          for (const row of (files ?? [])) {
+            const pid = row.property_document_id as string;
+            const created = row.created_at as string;
+            const cur = fileAggMap[pid];
+            if (!cur) {
+              // erster Eintrag = neueste Datei, weil absteigend sortiert
+              fileAggMap[pid] = { file_count: 1, last_file_at: created };
+            } else {
+              cur.file_count += 1;
+            }
           }
         }
 
@@ -186,7 +193,7 @@ export function createDocumentsRepo(supabase: SupabaseClient): DocumentsRepo {
               key: row.type.key,
               label: row.type.label,
               is_active: true,
-              created_at: new Date(0).toISOString(), // nicht benötigt im UI; Dummy
+              created_at: new Date(0).toISOString(),
             } : undefined,
             file_count: agg.file_count,
             last_file_at: agg.last_file_at,
@@ -195,9 +202,11 @@ export function createDocumentsRepo(supabase: SupabaseClient): DocumentsRepo {
 
         return { ok: true, data: { items } };
       } catch (e) {
+        console.error('listPropertyDocuments exception:', e);
         return { ok: false, error: mapError('unknown', 'listPropertyDocuments failed', e) };
       }
     },
+
 
     async getPropertyDocument(id: UUID): Promise<Result<PropertyDocument>> {
       try {
