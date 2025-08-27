@@ -74,7 +74,6 @@ export default function DocumentsTab({ propertyId }: Props) {
   useEffect(() => {
     let cancelled = false;
     async function guard() {
-      // Nur prüfen, wenn wir sicher KEIN Agent sind
       if (isAgent === false) {
         const { data: u } = await supabase.auth.getUser();
         const uid = u.user?.id;
@@ -118,7 +117,50 @@ export default function DocumentsTab({ propertyId }: Props) {
     return () => { cancelled = true; };
   }, [selectedDocId, repo]);
 
-  const selectedDoc = useMemo(() => docs.find(d => d.id === selectedDocId) ?? null, [docs, selectedDocId]);
+  // --- NEU-Badge: welche IDs sind „neu“? ---
+  const newDocIds: string[] = useMemo(() => {
+    if (!isAgent) return [];
+    const now = Date.now(); // unbenutzt, aber falls später TTL gewünscht
+    return docs
+      .filter(d => {
+        if (d.status !== 'uploaded') return false; // „neu“ nur bei echten Uploads
+        const seen = d.last_seen_at_agent ? new Date(d.last_seen_at_agent).getTime() : 0;
+        const updated = d.updated_at ? new Date(d.updated_at).getTime() : 0;
+        return updated > seen;
+      })
+      .map(d => d.id);
+  }, [docs, isAgent]);
+
+  // Beim Öffnen eines Dokuments: als gesehen markieren (nur Agent, nur wenn „neu“)
+  useEffect(() => {
+    let cancelled = false;
+    async function markSeen() {
+      if (!isAgent) return;
+      if (!selectedDocId) return;
+      const isNew = newDocIds.includes(selectedDocId);
+      if (!isNew) return;
+      const whenISO = new Date().toISOString();
+      const res = await repo.markSeenByAgent(selectedDocId, whenISO);
+      if (!cancelled) {
+        if (res.ok) {
+          // lokalen State aktualisieren, damit das Badge sofort verschwindet
+          setDocs(prev =>
+            prev.map(d => d.id === selectedDocId ? { ...d, last_seen_at_agent: whenISO } : d)
+          );
+        } else {
+          // Kein Hard-Error im UI – Badge bleibt einfach stehen.
+          console.warn('markSeenByAgent fehlgeschlagen:', res.error);
+        }
+      }
+    }
+    markSeen();
+    return () => { cancelled = true; };
+  }, [selectedDocId, isAgent, newDocIds, repo]);
+
+  const selectedDoc = useMemo(
+    () => docs.find(d => d.id === selectedDocId) ?? null,
+    [docs, selectedDocId]
+  );
   const documentTypeKey = selectedDoc?.type?.key ?? 'unknown';
 
   if (loading) return <div className="p-4">Lade Dokumente…</div>;
@@ -136,6 +178,7 @@ export default function DocumentsTab({ propertyId }: Props) {
           collapsed={collapsed}
           onToggleCollapsed={() => setCollapsed(c => !c)}
           isAgent={isAgent}
+          newIds={newDocIds}           // <-- NEU: „Neu“-Badges
         />
       </div>
 
@@ -165,7 +208,7 @@ export default function DocumentsTab({ propertyId }: Props) {
                 documentTypeKey={documentTypeKey}
                 onUploaded={async () => {
                   // Dateien neu laden + Platzhalterliste refreshten,
-                  // damit das Status-Badge sofort „Hochgeladen“ zeigt.
+                  // damit das Status-Badge sofort „Hochgeladen“ zeigt und „Neu“ ggf. verschwindet.
                   const [r1, r2] = await Promise.all([
                     repo.listFiles(selectedDoc.id),
                     repo.listPropertyDocuments(propertyId),

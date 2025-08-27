@@ -10,6 +10,7 @@ export default function DocumentListPanel({
   collapsed,
   onToggleCollapsed,
   isAgent,
+  newIds = [],
 }: {
   docs: PropertyDocumentSummary[];
   selectedId: string | null;
@@ -18,7 +19,10 @@ export default function DocumentListPanel({
   collapsed: boolean;
   onToggleCollapsed: () => void;
   isAgent: boolean;
+  newIds?: string[];
 }) {
+  const isNew = (id: string) => newIds.includes(id);
+
   return (
     <div className="border rounded-lg overflow-hidden">
       <div className="flex items-center justify-between p-3 border-b bg-gray-50">
@@ -39,7 +43,14 @@ export default function DocumentListPanel({
               className={`w-full text-left px-3 py-2 hover:bg-gray-50 ${selectedId === d.id ? 'bg-gray-100' : ''}`}
               onClick={() => onSelect(d.id)}
             >
-              <div className="text-sm font-medium">{d.type?.label ?? 'Dokument'}</div>
+              <div className="flex items-center gap-2">
+                <div className="text-sm font-medium truncate">
+                  {d.type?.label ?? 'Dokument'}
+                </div>
+                {isAgent && isNew(d.id) && (
+                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-100 text-blue-700">NEU</span>
+                )}
+              </div>
               <div className="text-xs text-gray-500">Status: {d.status}</div>
             </button>
           </li>
