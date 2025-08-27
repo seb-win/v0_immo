@@ -8,9 +8,9 @@ import { Button } from "@/components/ui/button";
 import { Home, Building, FileText, LogOut } from "lucide-react";
 
 type IconType = React.ComponentType<React.SVGProps<SVGSVGElement>>;
+type Role = "agent" | "customer";
 
 function isActivePath(pathname: string, href: string) {
-  // Aktiv, wenn exakt auf der Route oder in einer Unterroute (z. B. /leads/123)
   return pathname === href || pathname.startsWith(href + "/");
 }
 
@@ -46,23 +46,47 @@ function NavLink({
 export default function AppSidebar() {
   const pathname = usePathname();
   const [email, setEmail] = useState<string | null>(null);
+  const [role, setRole] = useState<Role | null>(null); // <— NEU
 
-  // Email im Footer live halten (Login/Logout)
+  // Session + Rolle laden/aktualisieren
   useEffect(() => {
     let alive = true;
 
-    // Initial: Session abfragen (keine Fehlermeldung bei fehlender Session)
-    supabase.auth.getSession().then(({ data }) => {
+    async function load() {
+      const { data } = await supabase.auth.getSession();
       if (!alive) return;
-      setEmail(data.session?.user?.email ?? null);
-    });
+      const session = data.session;
+      setEmail(session?.user?.email ?? null);
 
-    // Live: auf Auth-Events hören
+      if (session?.user?.id) {
+        const { data: prof } = await supabase
+          .from("profiles")
+          .select("role")
+          .eq("id", session.user.id)
+          .maybeSingle();
+        if (!alive) return;
+        if (prof?.role === "agent" || prof?.role === "customer") {
+          setRole(prof.role as Role);
+        } else {
+          setRole(null);
+        }
+      } else {
+        setRole(null);
+      }
+    }
+
+    void load();
+
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
+    } = supabase.auth.onAuthStateChange((_evt, session) => {
       if (!alive) return;
       setEmail(session?.user?.email ?? null);
+      if (!session?.user?.id) {
+        setRole(null);
+      } else {
+        // Rolle später nochmal geladen – kein extra Call hier nötig
+      }
     });
 
     return () => {
@@ -76,8 +100,10 @@ export default function AppSidebar() {
     window.location.href = "/";
   };
 
+  const isAgent = role === "agent";
+  const isCustomer = role === "customer";
+
   return (
-    // Sichtbar ab md-Breakpoint
     <aside
       className="hidden md:sticky md:top-0 md:flex md:h-svh md:w-64 md:flex-col md:border-r md:bg-card md:px-4 md:py-6"
       aria-label="Hauptnavigation"
@@ -91,37 +117,51 @@ export default function AppSidebar() {
           </div>
 
           <nav className="mt-8 flex flex-col gap-1">
-            {/* PRIMARY: Leads */}
-            <NavLink
-              href="/leads"
-              label="Leads"
-              icon={Home}
-              active={isActivePath(pathname ?? "", "/leads")}
-            />
+            {/* Leads nur für Agents */}
+            {isAgent && (
+              <NavLink
+                href="/leads"
+                label="Leads"
+                icon={Home}
+                active={isActivePath(pathname ?? "", "/leads")}
+              />
+            )}
 
-            {/* Weitere Einträge */}
+            {/* Objekte für beide Rollen */}
             <NavLink
               href="/objekte"
               label="Objekte"
               icon={Building}
               active={isActivePath(pathname ?? "", "/objekte")}
             />
+
+            {/* Top-Level „Dokumente“ entfernen ODER auf /objekte verlinken */}
+            {/* Variante: auskommentiert/entfernt
+            <NavLink
+              href="/dokumente"
+              label="Dokumente"
+              icon={FileText}
+              active={isActivePath(pathname ?? "", "/dokumente")}
+            />
+            */}
+            {/* Optionale Ersatz-Variante: */}
+            {/* <NavLink
+              href="/objekte"
+              label="Dokumente (über Objekt)"
+              icon={FileText}
+              active={isActivePath(pathname ?? "", "/objekte")}
+            /> */}
           </nav>
         </div>
 
-        {/* Footer (fix am unteren Rand) */}
+        {/* Footer */}
         <div>
           <div className="my-4 h-px bg-border" />
           <div className="flex flex-col gap-2">
             <div className="px-2 text-xs text-muted-foreground truncate">
-              Eingeloggt als: {email ?? "Lade…"}
+              Eingeloggt als: {email ?? "—"}
             </div>
-            <Button
-              variant="outline"
-              size="sm"
-              className="w-full"
-              onClick={handleSignOut}
-            >
+            <Button variant="outline" size="sm" className="w-full" onClick={handleSignOut}>
               <LogOut className="mr-2 h-4 w-4" />
               Logout
             </Button>

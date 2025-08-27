@@ -1,5 +1,5 @@
 // lib/repositories/documents-repo.ts
-// Implementation des Documents‑Repository auf Basis Supabase
+// Implementation des Documents-Repository auf Basis Supabase
 // Siehe Verträge in ./contracts.ts
 
 import type { SupabaseClient } from '@supabase/supabase-js';
@@ -55,7 +55,7 @@ function applyListOptions(query: any, options?: ListOptions) {
     const first = options.sort[0];
     query = query.order(first.field, { ascending: first.dir === 'asc' });
   } else {
-    query = query.order('updated_at', { ascending: false });
+    query = query.order('created_at', { ascending: true }); // stabile Reihenfolge in der Liste
   }
   return query;
 }
@@ -86,7 +86,7 @@ export function createDocumentsRepo(supabase: SupabaseClient): DocumentsRepo {
       try {
         const { data, error } = await supabase
           .from('document_types')
-          .select('*')
+          .select('id, key, label, is_active, created_at')
           .eq('is_active', true)
           .order('label', { ascending: true });
         if (error) return { ok: false, error: mapPostgrestToRepoError(error) };
@@ -107,7 +107,6 @@ export function createDocumentsRepo(supabase: SupabaseClient): DocumentsRepo {
           due_date: input.dueDate ?? null,
           supplier_email: input.supplierEmail ?? null,
           created_by: input.createdBy,
-          // status wird durch Trigger/Logik implizit pending/overdue
         }));
 
         const { data, error } = await supabase
@@ -123,9 +122,22 @@ export function createDocumentsRepo(supabase: SupabaseClient): DocumentsRepo {
 
     async listPropertyDocuments(propertyId: UUID, options?: ListOptions): Promise<Result<Page<PropertyDocumentSummary>>> {
       try {
+        // 1) Grunddaten je Platzhalter
         let q = supabase
           .from('property_documents')
-          .select('id, property_id, type_id, status, due_date, supplier_email, created_by, last_seen_at_agent, created_at, updated_at, type:document_types(*)')
+          .select(`
+            id,
+            property_id,
+            type_id,
+            status,
+            due_date,
+            supplier_email,
+            created_by,
+            last_seen_at_agent,
+            created_at,
+            updated_at,
+            type:document_types(id, key, label)
+          `)
           .eq('property_id', propertyId);
 
         q = applyListOptions(q, options);
@@ -133,11 +145,57 @@ export function createDocumentsRepo(supabase: SupabaseClient): DocumentsRepo {
         const { data, error } = await q;
         if (error) return { ok: false, error: mapPostgrestToRepoError(error) };
 
-        // file_count/last_file_at optional: Wird später per Aggregation ergänzt, falls nötig
-        const items = (data ?? []).map((row: any) => ({
-          ...row,
-          type: row.type,
-        })) as PropertyDocumentSummary[];
+        const itemsBase = (data ?? []) as any[];
+        const ids = itemsBase.map(r => r.id) as UUID[];
+
+        // 2) Aggregation: file_count + last_file_at
+        let fileAggMap: Record<string, { file_count: number; last_file_at: string | null }> = {};
+        if (ids.length > 0) {
+          const { data: files, error: filesErr } = await supabase
+            .from('document_files')
+            .select('property_document_id, created_at')
+            .in('property_document_id', ids)
+            .order('created_at', { ascending: false });
+          if (filesErr) return { ok: false, error: mapPostgrestToRepoError(filesErr) };
+
+          for (const row of (files ?? [])) {
+            const pid = row.property_document_id as string;
+            const created = row.created_at as string;
+            const cur = fileAggMap[pid];
+            if (!cur) {
+              // Erster Treffer: last_file_at = neuester (weil absteigend), count = 1
+              fileAggMap[pid] = { file_count: 1, last_file_at: created };
+            } else {
+              cur.file_count += 1;
+            }
+          }
+        }
+
+        // 3) Zusammenführen
+        const items: PropertyDocumentSummary[] = itemsBase.map((row) => {
+          const agg = fileAggMap[row.id] ?? { file_count: 0, last_file_at: null };
+          return {
+            id: row.id,
+            property_id: row.property_id,
+            type_id: row.type_id,
+            status: row.status,
+            due_date: row.due_date,
+            supplier_email: row.supplier_email,
+            created_by: row.created_by,
+            last_seen_at_agent: row.last_seen_at_agent,
+            created_at: row.created_at,
+            updated_at: row.updated_at,
+            type: row.type ? {
+              id: row.type.id,
+              key: row.type.key,
+              label: row.type.label,
+              is_active: true,
+              created_at: new Date(0).toISOString(), // nicht benötigt im UI; Dummy
+            } : undefined,
+            file_count: agg.file_count,
+            last_file_at: agg.last_file_at,
+          };
+        });
 
         return { ok: true, data: { items } };
       } catch (e) {
@@ -167,7 +225,7 @@ export function createDocumentsRepo(supabase: SupabaseClient): DocumentsRepo {
           .from('property_documents')
           .update({ last_seen_at_agent: at })
           .eq('id', propertyDocumentId)
-          .select('*')
+          .select('id, property_id, status, last_seen_at_agent, updated_at')
           .single();
         if (error) return { ok: false, error: mapPostgrestToRepoError(error) };
         return { ok: true, data: data as PropertyDocument };
@@ -215,7 +273,7 @@ export function createDocumentsRepo(supabase: SupabaseClient): DocumentsRepo {
       try {
         const { data, error } = await supabase
           .from('document_files')
-          .select('*')
+          .select('id, property_document_id, storage_path, filename, ext, mime_type, size, is_shared_with_customer, uploaded_by, created_at')
           .eq('property_document_id', propertyDocumentId)
           .order('created_at', { ascending: false });
         if (error) return { ok: false, error: mapPostgrestToRepoError(error) };
@@ -244,7 +302,7 @@ export function createDocumentsRepo(supabase: SupabaseClient): DocumentsRepo {
           .from('document_files')
           .update({ is_shared_with_customer: share })
           .eq('id', fileId)
-          .select('*')
+          .select('id, property_document_id, storage_path, filename, ext, mime_type, size, is_shared_with_customer, uploaded_by, created_at')
           .single();
         if (error) return { ok: false, error: mapPostgrestToRepoError(error) };
         return { ok: true, data: data as DocumentFile };
@@ -265,7 +323,7 @@ export function createDocumentsRepo(supabase: SupabaseClient): DocumentsRepo {
             body: input.body,
             created_by: input.createdBy,
           })
-          .select('*')
+          .select('id, property_document_id, body, created_by, created_at, edited_at')
           .single();
         if (error) return { ok: false, error: mapPostgrestToRepoError(error) };
         return { ok: true, data: data as DocumentNote };
@@ -278,7 +336,7 @@ export function createDocumentsRepo(supabase: SupabaseClient): DocumentsRepo {
       try {
         const { data, error } = await supabase
           .from('document_notes')
-          .select('*')
+          .select('id, property_document_id, body, created_by, created_at, edited_at')
           .eq('property_document_id', propertyDocumentId)
           .order('created_at', { ascending: false });
         if (error) return { ok: false, error: mapPostgrestToRepoError(error) };

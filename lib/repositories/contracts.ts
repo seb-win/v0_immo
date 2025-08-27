@@ -1,5 +1,5 @@
 // Repositories – Interfaces (Documents & Properties)
-// Stand: 2025‑08‑27
+// Stand: 2025-08-27
 // Zweck: Klare API-Verträge für das Frontend (keine Implementierung)
 // Hinweis: Alle Methoden geben ein Result<T> zurück (statt Exceptions)
 //          – erleichtert UI-Fehlerbehandlung ohne try/catch-Noise.
@@ -90,24 +90,24 @@ export interface PropertyDocument {
   property_id: UUID;
   type_id: UUID;
   status: DocumentStatus;
-  due_date?: string | null;         // YYYY-MM-DD
+  due_date?: string | null;           // YYYY-MM-DD
   supplier_email?: string | null;
   created_by?: UUID | null;
-  last_seen_at_agent?: string | null; // ISO
-  created_at: string; // ISO
-  updated_at: string; // ISO
+  last_seen_at_agent?: string | null; // ISO (Agent hat zuletzt gesehen)
+  created_at: string;                 // ISO
+  updated_at: string;                 // ISO
 }
 
 export interface PropertyDocumentSummary extends PropertyDocument {
-  type?: DocumentType;      // optionaler Join
-  file_count?: number;      // abgeleitet
-  last_file_at?: string | null; // abgeleitet (ISO)
+  type?: DocumentType;           // optionaler Join
+  file_count?: number;           // abgeleitet (#Files)
+  last_file_at?: string | null;  // abgeleitet (ISO, letzte Datei)
 }
 
 export interface DocumentFile {
   id: UUID;
   property_document_id: UUID;
-  storage_path: string; // Bucket: 'documents'
+  storage_path: string; // relativ zum Bucket 'documents'
   filename: string;
   ext?: string | null;
   mime_type?: string | null;
@@ -204,9 +204,6 @@ export interface DocumentsRepo {
 
   // Dateien
   buildStoragePath(args: BuildStoragePathArgs): string; // rein deterministisch, kein I/O
-
-  // Hinweis: Der eigentliche Storage-Upload läuft Client-seitig (Supabase Storage).
-  // Nach erfolgreichem Upload muss die Datei in document_files registriert werden:
   registerUploadedFile(propertyDocumentId: UUID, meta: UploadFileMeta, uploadedBy: UUID, storagePath: string): Promise<Result<DocumentFile>>;
 
   listFiles(propertyDocumentId: UUID): Promise<Result<DocumentFile[]>>;
@@ -255,6 +252,7 @@ export interface DocumentsRepo {
 
 // D) Agent markiert "Neu"-Badge als gesehen
 // 1) markSeenByAgent(propertyDocumentId, new Date().toISOString())
+// 2) UI berechnet NEU via: last_file_at > last_seen_at_agent (nicht updated_at)
 
 // E) Erinnerung senden
 // 1) sendReminder({ propertyDocumentId }) -> ruft Edge/Route und protokolliert Event (MVP: Stub)
