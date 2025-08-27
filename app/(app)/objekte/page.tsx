@@ -28,44 +28,41 @@ function PropertiesInner() {
 
   useEffect(() => {
     let cancel = false;
-
-    async function load() {
+    async function run() {
       setLoading(true);
       setErr(null);
+      try {
+        const { data: u } = await supabase.auth.getUser();
+        const uid = u.user?.id;
+        if (!uid) return;
 
-      // 1) User + Rolle holen
-      const { data: u } = await supabase.auth.getUser();
-      const uid = u.user?.id;
-      if (!uid) { setErr('Nicht eingeloggt'); setLoading(false); return; }
+        // Rolle lesen
+        const prof = await supabase.from('profiles').select('role').eq('id', uid).single();
+        const r = (prof.data?.role ?? 'agent') as Role;
+        if (!cancel) setRole(r);
 
-      const prof = await supabase.from('profiles').select('role').eq('id', uid).single();
-      const r = (prof.data?.role ?? 'agent') as Role;
-      if (!cancel) setRole(r);
-
-      // 2) Daten je Rolle
-      if (r === 'agent') {
-        const list = await repo.listProperties({ limit: 50 });
-        if (!cancel) {
-          if (list.ok) setItems(list.data.items);
-          else setErr(list.error.message ?? 'Fehler beim Laden');
+        if (r === 'agent') {
+          const list = await repo.listProperties({ limit: 50 });
+          if (!cancel) {
+            if (list.ok) setItems(list.data.items);
+            else setErr(list.error.message ?? 'Fehler beim Laden');
+          }
+        } else {
+          // CUSTOMER: direkt properties lesen -> RLS filtert auf zugewiesene Objekte
+          const q = await supabase
+            .from('properties')
+            .select('id, title, address, agent_id, created_at, updated_at')
+            .order('created_at', { ascending: false });
+          if (!cancel) {
+            if (q.error) setErr(q.error.message);
+            else setItems((q.data ?? []) as Property[]);
+          }
         }
-      } else {
-        // *** WICHTIG: KEIN zusätzlicher Filter! RLS liefert nur zugewiesene Objekte ***
-        const q = await supabase
-          .from('properties')
-          .select('id, title, address, agent_id, created_at, updated_at')
-          .order('created_at', { ascending: false });
-
-        if (!cancel) {
-          if (q.error) setErr(q.error.message);
-          else setItems((q.data ?? []) as Property[]);
-        }
+      } finally {
+        if (!cancel) setLoading(false);
       }
-
-      if (!cancel) setLoading(false);
     }
-
-    void load();
+    run();
     return () => { cancel = true; };
   }, [repo, supabase]);
 
@@ -76,7 +73,9 @@ function PropertiesInner() {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-semibold">Objekte</h1>
-        {role === 'agent' && <div className="text-sm text-gray-500">Neues Objekt anlegen (später)</div>}
+        {role === 'agent' && (
+          <div className="text-sm text-gray-500">Neues Objekt anlegen (kommt später)</div>
+        )}
       </div>
 
       <ul className="divide-y border rounded">
@@ -86,8 +85,11 @@ function PropertiesInner() {
               <div className="font-medium truncate">{p.title}</div>
               <div className="text-sm text-gray-500 truncate">{p.address ?? '—'}</div>
             </div>
-            <div className="shrink-0">
-              <Link href={`/objekte/${p.id}/dokumente`} className="px-3 py-1 border rounded hover:bg-gray-50">
+            <div className="shrink-0 flex items-center gap-2">
+              <Link
+                className="px-3 py-1 border rounded hover:bg-gray-50"
+                href={`/objekte/${p.id}/dokumente`}
+              >
                 Dokumente
               </Link>
             </div>
