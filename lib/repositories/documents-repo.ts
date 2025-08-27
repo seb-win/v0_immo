@@ -148,26 +148,22 @@ export function createDocumentsRepo(supabase: SupabaseClient): DocumentsRepo {
         const itemsBase = (data ?? []) as any[];
         const ids = itemsBase.map(r => r.id) as UUID[];
 
-        // 2) Aggregation: file_count + last_file_at
+        // 2) Aggregation: file_count + last_file_at (robust per SQL-GroupBy)
         let fileAggMap: Record<string, { file_count: number; last_file_at: string | null }> = {};
         if (ids.length > 0) {
-          const { data: files, error: filesErr } = await supabase
+          const { data: agg, error: aggErr } = await supabase
             .from('document_files')
-            .select('property_document_id, created_at')
+            .select('property_document_id, file_count:count(id), last_file_at:max(created_at)')
             .in('property_document_id', ids)
-            .order('created_at', { ascending: false });
-          if (filesErr) return { ok: false, error: mapPostgrestToRepoError(filesErr) };
+            .group('property_document_id');
 
-          for (const row of (files ?? [])) {
-            const pid = row.property_document_id as string;
-            const created = row.created_at as string;
-            const cur = fileAggMap[pid];
-            if (!cur) {
-              // Erster Treffer: last_file_at = neuester (weil absteigend), count = 1
-              fileAggMap[pid] = { file_count: 1, last_file_at: created };
-            } else {
-              cur.file_count += 1;
-            }
+          if (aggErr) return { ok: false, error: mapPostgrestToRepoError(aggErr) };
+
+          for (const row of (agg ?? [])) {
+            fileAggMap[row.property_document_id as string] = {
+              file_count: Number(row.file_count) || 0,
+              last_file_at: (row.last_file_at as string) ?? null,
+            };
           }
         }
 

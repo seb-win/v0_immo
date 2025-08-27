@@ -117,16 +117,15 @@ export default function DocumentsTab({ propertyId }: Props) {
     return () => { cancelled = true; };
   }, [selectedDocId, repo]);
 
-  // --- NEU-Badge: welche IDs sind „neu“? ---
+  // --- NEU-Badge stabil: basiert auf letzter Datei, nicht updated_at ---
   const newDocIds: string[] = useMemo(() => {
     if (!isAgent) return [];
-    const now = Date.now(); // unbenutzt, aber falls später TTL gewünscht
     return docs
       .filter(d => {
-        if (d.status !== 'uploaded') return false; // „neu“ nur bei echten Uploads
-        const seen = d.last_seen_at_agent ? new Date(d.last_seen_at_agent).getTime() : 0;
-        const updated = d.updated_at ? new Date(d.updated_at).getTime() : 0;
-        return updated > seen;
+        if (d.status !== 'uploaded') return false;
+        const lastFile = d.last_file_at ? Date.parse(d.last_file_at) : 0;
+        const seen     = d.last_seen_at_agent ? Date.parse(d.last_seen_at_agent) : 0;
+        return lastFile > seen; // „neu“ nur, wenn eine Datei nach dem letzten Besuch existiert
       })
       .map(d => d.id);
   }, [docs, isAgent]);
@@ -135,20 +134,16 @@ export default function DocumentsTab({ propertyId }: Props) {
   useEffect(() => {
     let cancelled = false;
     async function markSeen() {
-      if (!isAgent) return;
-      if (!selectedDocId) return;
-      const isNew = newDocIds.includes(selectedDocId);
-      if (!isNew) return;
+      if (!isAgent || !selectedDocId) return;
+      if (!newDocIds.includes(selectedDocId)) return; // nur wenn aktuell „neu“
+
       const whenISO = new Date().toISOString();
       const res = await repo.markSeenByAgent(selectedDocId, whenISO);
       if (!cancelled) {
         if (res.ok) {
-          // lokalen State aktualisieren, damit das Badge sofort verschwindet
-          setDocs(prev =>
-            prev.map(d => d.id === selectedDocId ? { ...d, last_seen_at_agent: whenISO } : d)
-          );
+          // lokalen State sofort aktualisieren
+          setDocs(prev => prev.map(d => d.id === selectedDocId ? { ...d, last_seen_at_agent: whenISO } : d));
         } else {
-          // Kein Hard-Error im UI – Badge bleibt einfach stehen.
           console.warn('markSeenByAgent fehlgeschlagen:', res.error);
         }
       }
