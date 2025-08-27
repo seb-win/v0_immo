@@ -30,6 +30,7 @@ function PropertiesInner() {
     let cancel = false;
     async function run() {
       setLoading(true);
+      setErr(null);
       try {
         const { data: u } = await supabase.auth.getUser();
         const uid = u.user?.id;
@@ -47,15 +48,14 @@ function PropertiesInner() {
             else setErr(list.error.message ?? 'Fehler beim Laden');
           }
         } else {
-          // Customer: über property_roles die Properties holen
+          // CUSTOMER: direkt properties lesen -> RLS filtert auf zugewiesene Objekte
           const q = await supabase
-            .from('property_roles')
-            .select('property:properties(*)')
-            .eq('user_id', uid)
-            .eq('role', 'customer');
+            .from('properties')
+            .select('id, title, address, agent_id, created_at, updated_at')
+            .order('created_at', { ascending: false });
           if (!cancel) {
             if (q.error) setErr(q.error.message);
-            else setItems((q.data ?? []).map((r: any) => r.property as Property).filter(Boolean));
+            else setItems((q.data ?? []) as Property[]);
           }
         }
       } finally {
@@ -64,7 +64,7 @@ function PropertiesInner() {
     }
     run();
     return () => { cancel = true; };
-  }, []);
+  }, [repo, supabase]);
 
   if (loading) return <div>Lade Objekte…</div>;
   if (err) return <div className="text-red-600">{err}</div>;
