@@ -30,20 +30,25 @@ function PropertiesInner() {
 
       const { data: u } = await supabase.auth.getUser();
       const uid = u.user?.id;
-      if (!uid) { if (!cancel) { setErr('Nicht eingeloggt'); setLoading(false); } return; }
+      if (!uid) {
+        if (!cancel) { setErr('Nicht eingeloggt'); setLoading(false); }
+        return;
+      }
 
+      // Rolle ermitteln
       const prof = await supabase.from('profiles').select('role').eq('id', uid).single();
       const r = (prof.data?.role ?? 'agent') as Role;
       if (!cancel) setRole(r);
 
       if (r === 'agent') {
+        // Agent: Repo (filtert intern auf agent_id = uid)
         const list = await repo.listProperties({ limit: 50 });
         if (!cancel) {
           if (list.ok) setItems(list.data.items);
           else setErr(list.error.message ?? 'Fehler beim Laden');
         }
       } else {
-        // *** Customer: KEIN zusätzlicher Filter – RLS zeigt nur zugewiesene Properties ***
+        // Customer: KEIN zusätzlicher Filter – RLS liefert nur zugewiesene Objekte
         const q = await supabase
           .from('properties')
           .select('id, title, address, agent_id, created_at, updated_at')

@@ -9,19 +9,18 @@ import AppSidebar from "@/components/app-sidebar";
 
 export default function AppLayout({ children }: { children: ReactNode }) {
   return (
-    <AuthRoleGate>
+    <AuthSessionGate>
       <div className="md:grid md:grid-cols-[16rem_1fr] min-h-svh">
         <Suspense fallback={<SidebarFallback />}>
           <AppSidebar />
         </Suspense>
         <main className="p-4">{children}</main>
       </div>
-    </AuthRoleGate>
+    </AuthSessionGate>
   );
 }
 
-// ... imports oben
-function AuthRoleGate({ children }: { children: React.ReactNode }) {
+function AuthSessionGate({ children }: { children: ReactNode }) {
   const router = useRouter();
   const [state, setState] = useState<"checking" | "allowed" | "redirecting">("checking");
 
@@ -29,8 +28,8 @@ function AuthRoleGate({ children }: { children: React.ReactNode }) {
     let alive = true;
 
     async function check() {
-      const { data: sessData } = await supabase.auth.getSession();
-      const session = sessData.session;
+      const { data } = await supabase.auth.getSession();
+      const session = data.session;
 
       if (!alive) return;
 
@@ -39,8 +38,6 @@ function AuthRoleGate({ children }: { children: React.ReactNode }) {
         router.replace("/");
         return;
       }
-
-      // ✅ Session vorhanden → NICHT nach Rolle umleiten. Die Seite regelt das selbst.
       setState("allowed");
     }
 
@@ -68,7 +65,6 @@ function AuthRoleGate({ children }: { children: React.ReactNode }) {
   }
   return <>{children}</>;
 }
-
 
 function SidebarFallback() {
   return (
