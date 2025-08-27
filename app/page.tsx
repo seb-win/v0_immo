@@ -7,10 +7,12 @@ import Auth from "@/components/auth";
 import { Loader2 } from "lucide-react";
 
 /**
- * Startseite:
- * - Prüft NUR, ob eine Session existiert.
- * - Bei Session -> sofort nach /leads (Role-Gate im (app)-Layout fängt Customers ab).
- * - Keine Profil-Query auf der Startseite (verhindert "Lädt…" Hänger).
+ * Startseite (Login):
+ * - Prüft Session.
+ * - Bei Session -> Rolle prüfen:
+ *    - agent    → /leads
+ *    - customer → /objekte
+ * - Falls keine Rolle oder Fehler -> Logout + zurück ins Login.
  */
 export default function Home() {
   const router = useRouter();
@@ -25,9 +27,27 @@ export default function Home() {
 
       if (!alive) return;
       if (session) {
-        // Optimistischer Redirect: Agenten landen direkt korrekt,
-        // Customers werden im (app)-Layout zu /customer umgeleitet.
-        router.replace("/leads");
+        // Rolle abfragen
+        const { data: profile, error } = await supabase
+          .from("profiles")
+          .select("role")
+          .eq("id", session.user.id)
+          .maybeSingle();
+
+        if (error || !profile) {
+          console.warn("Fehler beim Laden des Profils – melde ab.");
+          await supabase.auth.signOut();
+          setShowAuth(true);
+          return;
+        }
+
+        if (profile.role === "agent") router.replace("/leads");
+        else if (profile.role === "customer") router.replace("/objekte");
+        else {
+          console.warn("Unbekannte Rolle – melde ab.");
+          await supabase.auth.signOut();
+          setShowAuth(true);
+        }
       } else {
         setShowAuth(true);
       }
@@ -35,9 +55,26 @@ export default function Home() {
 
     void boot();
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_evt, session) => {
+    // Session-Änderungen live beobachten
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange(async (_evt, session) => {
       if (!alive) return;
-      if (session) router.replace("/leads");
+      if (session) {
+        const { data: profile } = await supabase
+          .from("profiles")
+          .select("role")
+          .eq("id", session.user.id)
+          .maybeSingle();
+
+        if (profile?.role === "agent") router.replace("/leads");
+        else if (profile?.role === "customer") router.replace("/objekte");
+        else {
+          console.warn("Keine Rolle gefunden – melde ab.");
+          await supabase.auth.signOut();
+          router.replace("/"); // zurück ins Login
+        }
+      }
     });
 
     return () => {

@@ -106,12 +106,6 @@ export default function AppSidebar() {
               icon={Building}
               active={isActivePath(pathname ?? "", "/objekte")}
             />
-            <NavLink
-              href="/dokumente"
-              label="Dokumente"
-              icon={FileText}
-              active={isActivePath(pathname ?? "", "/dokumente")}
-            />
           </nav>
         </div>
 

@@ -57,14 +57,8 @@ function AuthRoleGate({ children }: { children: ReactNode }) {
 
         if (error) throw error;
 
-        if (profile?.role === "agent") {
+        if (profile?.role === "agent" || profile?.role === "customer") {
           if (alive) setState("allowed");
-          return;
-        }
-        if (profile?.role === "customer") {
-          if (!alive) return;
-          setState("redirecting");
-          router.replace("/customer");
           return;
         }
 
