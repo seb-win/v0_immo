@@ -20,59 +20,28 @@ export default function AppLayout({ children }: { children: ReactNode }) {
   );
 }
 
-function AuthRoleGate({ children }: { children: ReactNode }) {
+// ... imports oben
+function AuthRoleGate({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const [state, setState] = useState<"checking" | "allowed" | "redirecting">("checking");
 
   useEffect(() => {
     let alive = true;
-    let watchdog: ReturnType<typeof setTimeout> | null = null;
 
     async function check() {
-      try {
-        const { data: sessData } = await supabase.auth.getSession();
-        const session = sessData.session;
-        if (!session) {
-          if (!alive) return;
-          setState("redirecting");
-          router.replace("/");
-          return;
-        }
+      const { data: sessData } = await supabase.auth.getSession();
+      const session = sessData.session;
 
-        watchdog = setTimeout(async () => {
-          if (!alive) return;
-          console.warn("[(app)/layout] watchdog fired → signOut fallback");
-          await supabase.auth.signOut();
-          setState("redirecting");
-          router.replace("/");
-        }, 6000);
+      if (!alive) return;
 
-        const { data: profile, error } = await supabase
-          .from("profiles")
-          .select("role")
-          .eq("id", session.user.id)
-          .maybeSingle();
-
-        if (watchdog) clearTimeout(watchdog);
-
-        if (error) throw error;
-
-        if (profile?.role === "agent" || profile?.role === "customer") {
-          if (alive) setState("allowed");
-          return;
-        }
-
-        await supabase.auth.signOut();
-        if (!alive) return;
+      if (!session) {
         setState("redirecting");
         router.replace("/");
-      } catch (e) {
-        console.warn("[(app)/layout] role check error:", e);
-        await supabase.auth.signOut();
-        if (!alive) return;
-        setState("redirecting");
-        router.replace("/");
+        return;
       }
+
+      // ✅ Session vorhanden → NICHT nach Rolle umleiten. Die Seite regelt das selbst.
+      setState("allowed");
     }
 
     void check();
@@ -87,30 +56,19 @@ function AuthRoleGate({ children }: { children: ReactNode }) {
 
     return () => {
       alive = false;
-      if (watchdog) clearTimeout(watchdog);
       subscription.unsubscribe();
     };
   }, [router]);
 
-
   if (state === "checking") {
-    return (
-      <div className="flex min-h-svh items-center justify-center text-sm text-muted-foreground">
-        Zugang prüfen …
-      </div>
-    );
+    return <div className="flex min-h-svh items-center justify-center text-sm text-muted-foreground">Zugang prüfen …</div>;
   }
-
   if (state === "redirecting") {
-    return (
-      <div className="flex min-h-svh items-center justify-center text-sm text-muted-foreground">
-        Weiterleitung …
-      </div>
-    );
+    return <div className="flex min-h-svh items-center justify-center text-sm text-muted-foreground">Weiterleitung …</div>;
   }
-
   return <>{children}</>;
 }
+
 
 function SidebarFallback() {
   return (
