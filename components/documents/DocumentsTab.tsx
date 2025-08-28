@@ -28,13 +28,13 @@ export default function DocumentsTab({ propertyId }: Props) {
   const [files, setFiles] = useState<DocumentFile[]>([]);
   const [selectedFile, setSelectedFile] = useState<DocumentFile | null>(null);
   const [notes, setNotes] = useState<DocumentNote[]>([]);
-  const [isAgent, setIsAgent] = useState<boolean>(true); // dynamisch via profiles.role
+  const [isAgent, setIsAgent] = useState<boolean>(false); // Start = Customer, Agent-UI erst nach Rollenermittlung
   const [collapsed, setCollapsed] = useState<boolean>(false);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   const [showAdd, setShowAdd] = useState<boolean>(false);
 
-  // Initial laden (Platzhalterliste)
+  // Initial: Platzhalterliste laden
   useEffect(() => {
     let cancelled = false;
     async function load() {
@@ -70,7 +70,7 @@ export default function DocumentsTab({ propertyId }: Props) {
     return () => { cancelled = true; };
   }, [supabase]);
 
-  // Customer-Access-Guard: hat der Customer Zugriff auf dieses Objekt?
+  // Customer-Access-Guard (sanft): wenn Customer ohne property_roles → Fehlermeldung
   useEffect(() => {
     let cancelled = false;
     async function guard() {
@@ -117,7 +117,7 @@ export default function DocumentsTab({ propertyId }: Props) {
     return () => { cancelled = true; };
   }, [selectedDocId, repo]);
 
-  // --- NEU-Badge stabil: basiert auf letzter Datei, nicht updated_at ---
+  // „NEU“-Badge: basiert auf last_file_at vs. last_seen_at_agent
   const newDocIds: string[] = useMemo(() => {
     if (!isAgent) return [];
     return docs
@@ -125,23 +125,22 @@ export default function DocumentsTab({ propertyId }: Props) {
         if (d.status !== 'uploaded') return false;
         const lastFile = d.last_file_at ? Date.parse(d.last_file_at) : 0;
         const seen     = d.last_seen_at_agent ? Date.parse(d.last_seen_at_agent) : 0;
-        return lastFile > seen; // „neu“ nur, wenn eine Datei nach dem letzten Besuch existiert
+        return lastFile > seen;
       })
       .map(d => d.id);
   }, [docs, isAgent]);
 
-  // Beim Öffnen eines Dokuments: als gesehen markieren (nur Agent, nur wenn „neu“)
+  // Beim Öffnen als Agent „gesehen“ markieren (nur wenn neu)
   useEffect(() => {
     let cancelled = false;
     async function markSeen() {
       if (!isAgent || !selectedDocId) return;
-      if (!newDocIds.includes(selectedDocId)) return; // nur wenn aktuell „neu“
+      if (!newDocIds.includes(selectedDocId)) return;
 
       const whenISO = new Date().toISOString();
       const res = await repo.markSeenByAgent(selectedDocId, whenISO);
       if (!cancelled) {
         if (res.ok) {
-          // lokalen State sofort aktualisieren
           setDocs(prev => prev.map(d => d.id === selectedDocId ? { ...d, last_seen_at_agent: whenISO } : d));
         } else {
           console.warn('markSeenByAgent fehlgeschlagen:', res.error);
@@ -173,7 +172,7 @@ export default function DocumentsTab({ propertyId }: Props) {
           collapsed={collapsed}
           onToggleCollapsed={() => setCollapsed(c => !c)}
           isAgent={isAgent}
-          newIds={newDocIds}           // <-- NEU: „Neu“-Badges
+          newIds={newDocIds}
         />
       </div>
 
@@ -195,6 +194,13 @@ export default function DocumentsTab({ propertyId }: Props) {
               )}
             </div>
 
+            {/* Customer-Hinweis (nur wenn kein Agent) */}
+            {!isAgent && (
+              <div className="rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-800">
+                Du kannst hier fehlende Dateien hochladen. Die Sichtbarkeit einzelner Dateien steuert der Makler.
+              </div>
+            )}
+
             {/* Upload + Fileliste */}
             <div className="flex items-center gap-3">
               <DocumentUploadButton
@@ -202,8 +208,6 @@ export default function DocumentsTab({ propertyId }: Props) {
                 propertyDocumentId={selectedDoc.id}
                 documentTypeKey={documentTypeKey}
                 onUploaded={async () => {
-                  // Dateien neu laden + Platzhalterliste refreshten,
-                  // damit das Status-Badge sofort „Hochgeladen“ zeigt und „Neu“ ggf. verschwindet.
                   const [r1, r2] = await Promise.all([
                     repo.listFiles(selectedDoc.id),
                     repo.listPropertyDocuments(propertyId),
