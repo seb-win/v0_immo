@@ -9,13 +9,16 @@ import NewLeadDialog from "@/components/leads/new-lead-dialog";
 import type { Lead, LeadStatus, SortSpec } from "@/lib/types/lead";
 import { LEAD_STATUS_LABEL } from "@/lib/types/lead";
 import { listLeads } from "@/lib/repositories/leads-repo";
+import { supabaseBrowser } from "@/lib/supabase/client"; // ← NEU
 
 /* ------------------- Page wrapper with Suspense ------------------- */
 
 export default function LeadsPage() {
   return (
     <Suspense fallback={<LeadsPageSkeleton />}>
-      <LeadsPageContent />
+      <AgentGuard>
+        <LeadsPageContent />
+      </AgentGuard>
     </Suspense>
   );
 }
@@ -28,6 +31,81 @@ function LeadsPageSkeleton() {
       <div className="h-72 rounded-md border bg-muted/40 animate-pulse" />
     </div>
   );
+}
+
+/* ------------------- Agent-only Guard ------------------- */
+
+function AgentGuard({ children }: { children: React.ReactNode }) {
+  const router = useRouter();
+  const supabase = useMemo(() => supabaseBrowser(), []);
+  const [state, setState] = useState<"checking" | "allowed" | "redirecting">("checking");
+
+  useEffect(() => {
+    let alive = true;
+
+    (async () => {
+      // Session prüfen
+      const { data: sess } = await supabase.auth.getSession();
+      if (!alive) return;
+
+      if (!sess.session) {
+        setState("redirecting");
+        router.replace("/");
+        return;
+      }
+
+      // Rolle laden
+      const uid = sess.session.user.id;
+      const { data: prof, error } = await supabase.from("profiles").select("role").eq("id", uid).single();
+
+      if (!alive) return;
+
+      if (error || !prof?.role) {
+        // konservativ: wenn unklar → raus zur Startseite
+        setState("redirecting");
+        router.replace("/");
+        return;
+      }
+
+      if (prof.role === "customer") {
+        setState("redirecting");
+        router.replace("/objekte");
+        return;
+      }
+
+      // Agent → erlaubt
+      setState("allowed");
+    })();
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_evt, session) => {
+      if (!alive) return;
+      if (!session) {
+        setState("redirecting");
+        router.replace("/");
+      }
+    });
+
+    return () => {
+      alive = false;
+      subscription.unsubscribe();
+    };
+  }, [router, supabase]);
+
+  if (state === "checking") {
+    return (
+      <div className="flex min-h-svh items-center justify-center text-sm text-muted-foreground">
+        Zugang prüfen …
+      </div>
+    );
+  }
+  if (state === "redirecting") {
+    return (
+      <div className="flex min-h-svh items-center justify-center text-sm text-muted-foreground">
+        Weiterleitung …
+      </div>
+    );
+  }
+  return <>{children}</>;
 }
 
 /* ------------------- Actual page content (URL-driven) --------------- */
@@ -244,7 +322,7 @@ function readSort(input: string | null): SortSpec | undefined {
   return { field: field as SortSpec["field"], direction: direction as SortSpec["direction"] };
 }
 
-function readFiltersFromURL(sp: ReturnType<typeof useSearchParams>): FiltersState {
+function readFiltersFromURL(sp: ReturnType<typeof useSearchParams>): { q?: string; statuses?: LeadStatus[]; dateFrom?: string; dateTo?: string } {
   const q = sp.get("q") ?? undefined;
   const statuses = sp.getAll("status") as LeadStatus[];
   const dateFrom = sp.get("from") ?? undefined;
