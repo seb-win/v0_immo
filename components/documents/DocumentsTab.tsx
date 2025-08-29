@@ -28,13 +28,17 @@ export default function DocumentsTab({ propertyId }: Props) {
   const [files, setFiles] = useState<DocumentFile[]>([]);
   const [selectedFile, setSelectedFile] = useState<DocumentFile | null>(null);
   const [notes, setNotes] = useState<DocumentNote[]>([]);
-  const [isAgent, setIsAgent] = useState<boolean>(false); // Start = Customer, Agent-UI erst nach Rollenermittlung
+
+  // 🔧 PATCH: Rolle ist jetzt tri-state (null | boolean)
+  // null = Rolle noch nicht geladen → Guard wartet, bis bekannt
+  const [isAgent, setIsAgent] = useState<boolean | null>(null);
+
   const [collapsed, setCollapsed] = useState<boolean>(false);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   const [showAdd, setShowAdd] = useState<boolean>(false);
 
-  // Initial: Platzhalterliste laden
+  // 1) Dokumentliste laden
   useEffect(() => {
     let cancelled = false;
     async function load() {
@@ -44,7 +48,9 @@ export default function DocumentsTab({ propertyId }: Props) {
         if (res.ok) {
           setDocs(res.data.items);
           setSelectedDocId(res.data.items[0]?.id ?? null);
-        } else setError(res.error.message ?? 'Fehler beim Laden');
+        } else {
+          setError(res.error.message ?? 'Fehler beim Laden');
+        }
         setLoading(false);
       }
     }
@@ -52,46 +58,62 @@ export default function DocumentsTab({ propertyId }: Props) {
     return () => { cancelled = true; };
   }, [propertyId, repo]);
 
-  // Rolle (agent/customer) laden und isAgent setzen
+  // 2) Rolle laden (agent/customer) → isAgent setzen
   useEffect(() => {
     let cancelled = false;
     async function loadRole() {
       const { data } = await supabase.auth.getUser();
       const uid = data.user?.id;
-      if (!uid) return;
+      if (!uid) { if (!cancelled) setIsAgent(false); return; }
       const { data: prof } = await supabase
         .from('profiles')
         .select('role')
         .eq('id', uid)
-        .single();
-      if (!cancelled && prof?.role) setIsAgent(prof.role === 'agent');
+        .maybeSingle();
+
+      // 🔧 PATCH: Wenn keine Rolle gefunden → als Customer behandeln (false),
+      // wichtig ist: isAgent ist *nicht* mehr default false, sondern wir warten bis hier.
+      if (!cancelled) setIsAgent(prof?.role ? prof.role === 'agent' : false);
     }
     loadRole();
     return () => { cancelled = true; };
   }, [supabase]);
 
-  // Customer-Access-Guard (sanft): wenn Customer ohne property_roles → Fehlermeldung
+  // 3) 🔧 PATCH: Customer-Access-Guard wartet, bis Rolle bekannt ist
+  // Agents: sofort Zugriff (Fehler ggf. zurücksetzen)
+  // Customers: property_roles prüfen
   useEffect(() => {
     let cancelled = false;
     async function guard() {
-      if (isAgent === false) {
-        const { data: u } = await supabase.auth.getUser();
-        const uid = u.user?.id;
-        if (!uid) return;
-        const { data, error } = await supabase
-          .from('property_roles')
-          .select('property_id')
-          .eq('property_id', propertyId)
-          .eq('user_id', uid)
-          .eq('role', 'customer')
-          .maybeSingle();
+      // warten bis Rolle bestimmt ist
+      if (isAgent === null) return;
 
-        if (!cancelled) {
-          if (error || !data) {
-            setError('Kein Zugriff auf dieses Objekt.');
-            setDocs([]);
-            setSelectedDocId(null);
-          }
+      const { data: u } = await supabase.auth.getUser();
+      const uid = u.user?.id;
+      if (!uid) return;
+
+      if (isAgent === true) {
+        // Agenten: Zugriff gewähren, evtl. zuvor gesetzte Fehlermeldung entfernen
+        if (!cancelled) setError(null);
+        return;
+      }
+
+      // Customer: Relation prüfen
+      const { data, error } = await supabase
+        .from('property_roles')
+        .select('property_id')
+        .eq('property_id', propertyId)
+        .eq('user_id', uid)
+        .eq('role', 'customer')
+        .maybeSingle();
+
+      if (!cancelled) {
+        if (error || !data) {
+          setError('Kein Zugriff auf dieses Objekt.');
+          setDocs([]);
+          setSelectedDocId(null);
+        } else {
+          setError(null);
         }
       }
     }
@@ -99,7 +121,7 @@ export default function DocumentsTab({ propertyId }: Props) {
     return () => { cancelled = true; };
   }, [isAgent, propertyId, supabase]);
 
-  // Dateien & Notes laden, wenn Dokument gewählt
+  // 4) Dateien & Notizen zum ausgewählten Dokument laden
   useEffect(() => {
     let cancelled = false;
     async function loadDetails() {
@@ -109,8 +131,10 @@ export default function DocumentsTab({ propertyId }: Props) {
         repo.listNotes(selectedDocId),
       ]);
       if (!cancelled) {
-        if (filesRes.ok) setFiles(filesRes.data); else setError(filesRes.error.message ?? 'Fehler beim Laden der Dateien');
-        if (notesRes.ok) setNotes(notesRes.data); else setError(notesRes.error.message ?? 'Fehler beim Laden der Notizen');
+        if (filesRes.ok) setFiles(filesRes.data);
+        else setError(filesRes.error.message ?? 'Fehler beim Laden der Dateien');
+        if (notesRes.ok) setNotes(notesRes.data);
+        else setError(notesRes.error.message ?? 'Fehler beim Laden der Notizen');
       }
     }
     loadDetails();
@@ -130,7 +154,7 @@ export default function DocumentsTab({ propertyId }: Props) {
       .map(d => d.id);
   }, [docs, isAgent]);
 
-  // Beim Öffnen als Agent „gesehen“ markieren (nur wenn neu)
+  // Gesehen-Markierung (nur Agent)
   useEffect(() => {
     let cancelled = false;
     async function markSeen() {
@@ -157,7 +181,12 @@ export default function DocumentsTab({ propertyId }: Props) {
   );
   const documentTypeKey = selectedDoc?.type?.key ?? 'unknown';
 
+  // UI-States
   if (loading) return <div className="p-4">Lade Dokumente…</div>;
+
+  // 🔧 PATCH: solange Rolle noch nicht bestimmt ist, Guard NICHT ausführen → freundlicher Hint
+  if (isAgent === null) return <div className="p-4">Prüfe Zugriffsrechte …</div>;
+
   if (error) return <div className="p-4 text-red-600">{error}</div>;
 
   return (
@@ -165,13 +194,12 @@ export default function DocumentsTab({ propertyId }: Props) {
       {/* Linke Liste */}
       <div className={`${collapsed ? 'hidden md:block md:col-span-3' : 'col-span-12 md:col-span-3'}`}>
         <DocumentListPanel
-          docs={docs}
+          documents={docs}
           selectedId={selectedDocId}
           onSelect={setSelectedDocId}
-          onAddClick={() => setShowAdd(true)}
           collapsed={collapsed}
           onToggleCollapsed={() => setCollapsed(c => !c)}
-          isAgent={isAgent}
+          isAgent={!!isAgent}
           newIds={newDocIds}
         />
       </div>
@@ -181,6 +209,7 @@ export default function DocumentsTab({ propertyId }: Props) {
         {!selectedDoc && (
           <div className="p-6 border rounded-lg text-gray-500">Kein Dokument ausgewählt.</div>
         )}
+
         {selectedDoc && (
           <div className="space-y-4">
             <div className="flex items-center justify-between">
@@ -201,23 +230,28 @@ export default function DocumentsTab({ propertyId }: Props) {
               </div>
             )}
 
-            {/* Upload + Fileliste */}
-            <div className="flex items-center gap-3">
-              <DocumentUploadButton
-                propertyId={selectedDoc.property_id}
-                propertyDocumentId={selectedDoc.id}
-                documentTypeKey={documentTypeKey}
-                onUploaded={async () => {
-                  const [r1, r2] = await Promise.all([
-                    repo.listFiles(selectedDoc.id),
-                    repo.listPropertyDocuments(propertyId),
-                  ]);
-                  if (r1.ok) setFiles(r1.data);
-                  if (r2.ok) setDocs(r2.data.items);
-                }}
-              />
-              {/* Platzhalter Statusanzeige */}
-              <StatusBadge status={selectedDoc.status} />
+            <div className="flex items-center justify-between gap-2">
+              <div className="text-sm text-gray-600">
+                {selectedDoc.description ?? '—'}
+              </div>
+
+              <div className="flex items-center gap-2">
+                <DocumentUploadButton
+                  propertyId={propertyId}
+                  propertyDocumentId={selectedDoc.id}
+                  canEdit={!!isAgent}
+                  onUploaded={async () => {
+                    const [r1, r2] = await Promise.all([
+                      repo.listFiles(selectedDoc.id),
+                      repo.listPropertyDocuments(propertyId),
+                    ]);
+                    if (r1.ok) setFiles(r1.data);
+                    if (r2.ok) setDocs(r2.data.items);
+                  }}
+                />
+                {/* Platzhalter Statusanzeige */}
+                <StatusBadge status={selectedDoc.status} />
+              </div>
             </div>
 
             <div className="grid grid-cols-12 gap-4">
@@ -233,7 +267,7 @@ export default function DocumentsTab({ propertyId }: Props) {
                     const r = await repo.listFiles(selectedDoc.id);
                     if (r.ok) setFiles(r.data);
                   }}
-                  isAgent={isAgent}
+                  isAgent={!!isAgent}
                 />
               </div>
               <div className="col-span-12 lg:col-span-6">
@@ -241,33 +275,42 @@ export default function DocumentsTab({ propertyId }: Props) {
               </div>
             </div>
 
+            <DocumentNotes
+              notes={notes}
+              canEdit={!!isAgent}
+              onAdd={async (text) => {
+                const r = await repo.addNote(selectedDoc.id, text);
+                if (r.ok) {
+                  setNotes(prev => [{ ...r.data, created_at: new Date().toISOString() }, ...prev]);
+                }
+              }}
+              onDelete={async (noteId) => {
+                const r = await repo.deleteNote(selectedDoc.id, noteId);
+                if (r.ok) {
+                  setNotes(prev => prev.filter(n => n.id !== noteId));
+                }
+              }}
+            />
+
+            {/* Nur Agenten dürfen neue Dokument-Typen hinzufügen */}
             {isAgent && (
-              <DocumentNotes
-                propertyDocumentId={selectedDoc.id}
-                notes={notes}
-                onAdded={async () => {
-                  const r = await repo.listNotes(selectedDoc.id);
-                  if (r.ok) setNotes(r.data);
+              <DocumentAddModal
+                propertyId={propertyId}
+                defaultTypeKey={documentTypeKey}
+                open={showAdd}
+                onOpenChange={setShowAdd}
+                onCreated={async () => {
+                  const r = await repo.listPropertyDocuments(propertyId);
+                  if (r.ok) {
+                    setDocs(r.data.items);
+                    if (!selectedDocId && r.data.items.length > 0) setSelectedDocId(r.data.items[0].id);
+                  }
                 }}
               />
             )}
           </div>
         )}
       </div>
-
-      {showAdd && isAgent && (
-        <DocumentAddModal
-          propertyId={propertyId}
-          onClose={() => setShowAdd(false)}
-          onCreated={async () => {
-            const r = await repo.listPropertyDocuments(propertyId);
-            if (r.ok) {
-              setDocs(r.data.items);
-              if (!selectedDocId && r.data.items.length > 0) setSelectedDocId(r.data.items[0].id);
-            }
-          }}
-        />
-      )}
     </div>
   );
 }

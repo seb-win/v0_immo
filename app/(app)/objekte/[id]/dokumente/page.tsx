@@ -1,5 +1,4 @@
 'use client';
-
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabaseBrowser } from '@/lib/supabase/client';
@@ -11,10 +10,14 @@ export default function DokumentePage({ params }: { params: { id: string } }) {
   const supabase = supabaseBrowser();
   const [checking, setChecking] = useState(true);
 
-  // ✨ RLS-Guard: keine Row → kein Zugriff → zurück zu /objekte
   useEffect(() => {
     let active = true;
     (async () => {
+      // Neu: warte, bis Auth-Session steht
+      const { data: sessionData } = await supabase.auth.getSession();
+      // (Optional) wenn gar keine Session → redirect/login
+      // if (!sessionData.session) { router.replace('/login'); return; }
+
       const { data, error } = await supabase
         .from('properties')
         .select('id')
@@ -24,16 +27,13 @@ export default function DokumentePage({ params }: { params: { id: string } }) {
       if (!active) return;
 
       if (error || !data) {
-        // Kein Zugriff oder Objekt existiert nicht
         router.replace('/objekte');
-        return;
+      } else {
+        setChecking(false);
       }
-      setChecking(false);
     })();
 
-    return () => {
-      active = false;
-    };
+    return () => { active = false; };
   }, [propertyId, router, supabase]);
 
   if (checking) {
