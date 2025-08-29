@@ -23,47 +23,37 @@ export default function DocumentsTab({ propertyId }: Props) {
   const supabase = useMemo(() => supabaseBrowser(), []);
   const repo = useMemo(() => createDocumentsRepo(supabase), [supabase]);
 
+  // ----- State -----
   const [docs, setDocs] = useState<PropertyDocumentSummary[]>([]);
   const [selectedDocId, setSelectedDocId] = useState<string | null>(null);
   const [files, setFiles] = useState<DocumentFile[]>([]);
   const [selectedFile, setSelectedFile] = useState<DocumentFile | null>(null);
   const [notes, setNotes] = useState<DocumentNote[]>([]);
 
-  // tri-state Rolle: null = noch unbekannt → Guard wartet
+  // Auth/Rolle/Guard
+  const [authReady, setAuthReady] = useState(false);
   const [isAgent, setIsAgent] = useState<boolean | null>(null);
+  const [allowed, setAllowed] = useState<boolean | null>(null);
 
+  // UI
   const [collapsed, setCollapsed] = useState<boolean>(false);
-  const [loading, setLoading] = useState<boolean>(true);
+  const [loadingDocs, setLoadingDocs] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [showAdd, setShowAdd] = useState<boolean>(false);
 
-  // 1) Dokumentliste laden (defensiv: items ?? [])
+  // ========== 1) Auth & Rolle laden ==========
   useEffect(() => {
-    let cancelled = false;
+    let active = true;
     (async () => {
-      setLoading(true);
-      const res = await repo.listPropertyDocuments(propertyId);
-      if (cancelled) return;
+      const { data: userData } = await supabase.auth.getUser();
+      const uid = userData.user?.id ?? null;
 
-      if (res.ok) {
-        const items = res.data.items ?? [];
-        setDocs(items);
-        setSelectedDocId(items?.[0]?.id ?? null);
-      } else {
-        setError(res.error.message ?? 'Fehler beim Laden');
+      if (!uid) {
+        if (!active) return;
+        setIsAgent(false);
+        setAuthReady(true);
+        return;
       }
-      setLoading(false);
-    })();
-    return () => { cancelled = true; };
-  }, [propertyId, repo]);
-
-  // 2) Rolle laden (agent/customer)
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      const { data } = await supabase.auth.getUser();
-      const uid = data.user?.id;
-      if (!uid) { if (!cancelled) setIsAgent(false); return; }
 
       const { data: prof } = await supabase
         .from('profiles')
@@ -71,28 +61,33 @@ export default function DocumentsTab({ propertyId }: Props) {
         .eq('id', uid)
         .maybeSingle();
 
-      if (!cancelled) setIsAgent(prof?.role ? prof.role === 'agent' : false);
+      if (!active) return;
+      setIsAgent(prof?.role ? prof.role === 'agent' : false);
+      setAuthReady(true);
     })();
-    return () => { cancelled = true; };
+
+    return () => { active = false; };
   }, [supabase]);
 
-  // 3) Zugriffsguard (wartet bis Rolle bekannt)
+  // ========== 2) Guard – Zugriff bestimmen (erst nach Auth/Rolle) ==========
   useEffect(() => {
-    let cancelled = false;
+    let active = true;
     (async () => {
-      if (isAgent === null) return; // Rolle noch nicht bekannt → warten
+      if (!authReady || isAgent === null) return;
 
-      const { data: u } = await supabase.auth.getUser();
-      const uid = u.user?.id;
-      if (!uid) return;
+      const { data: userData } = await supabase.auth.getUser();
+      const uid = userData.user?.id ?? null;
+      if (!uid) { if (active) setAllowed(false); return; }
 
       if (isAgent === true) {
-        if (!cancelled) setError(null); // Agent: Zugriff gewähren, evtl. alten Fehler löschen
+        if (!active) return;
+        setAllowed(true);
+        setError(null);
         return;
       }
 
       // Customer: property_roles prüfen
-      const { data, error } = await supabase
+      const { data, error: prErr } = await supabase
         .from('property_roles')
         .select('property_id')
         .eq('property_id', propertyId)
@@ -100,48 +95,73 @@ export default function DocumentsTab({ propertyId }: Props) {
         .eq('role', 'customer')
         .maybeSingle();
 
-      if (!cancelled) {
-        if (error || !data) {
-          setError('Kein Zugriff auf dieses Objekt.');
-          setDocs([]); // wichtig: bleibt Array, kein undefined → .map safe
-          setSelectedDocId(null);
-          setFiles([]);
-          setNotes([]);
-          setSelectedFile(null);
-        } else {
-          setError(null);
-        }
+      if (!active) return;
+
+      if (prErr || !data) {
+        setAllowed(false);
+        setError('Kein Zugriff auf dieses Objekt.');
+        // Arrays leeren (aber nicht undefined werden lassen)
+        setDocs([]); setFiles([]); setNotes([]); setSelectedDocId(null); setSelectedFile(null);
+      } else {
+        setAllowed(true);
+        setError(null);
       }
     })();
-    return () => { cancelled = true; };
-  }, [isAgent, propertyId, supabase]);
 
-  // 4) Dateien & Notizen zum ausgewählten Dokument laden
+    return () => { active = false; };
+  }, [authReady, isAgent, propertyId, supabase]);
+
+  // ========== 3) Dokumente laden (erst wenn allowed === true) ==========
   useEffect(() => {
-    let cancelled = false;
+    let active = true;
     (async () => {
-      if (!selectedDocId) {
-        setFiles([]);
-        setNotes([]);
-        setSelectedFile(null);
+      if (allowed !== true) return;
+      setLoadingDocs(true);
+
+      const res = await repo.listPropertyDocuments(propertyId);
+      if (!active) return;
+
+      if (res.ok) {
+        const items = res.data?.items ?? [];
+        setDocs(items);
+        setSelectedDocId(items?.[0]?.id ?? null);
+        setError(null);
+      } else {
+        setError(res.error?.message ?? 'Fehler beim Laden');
+        setDocs([]); setSelectedDocId(null);
+      }
+      setLoadingDocs(false);
+    })();
+
+    return () => { active = false; };
+  }, [allowed, propertyId, repo]);
+
+  // ========== 4) Dateien & Notizen zum ausgewählten Dokument ==========
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      if (!selectedDocId || allowed !== true) {
+        setFiles([]); setNotes([]); setSelectedFile(null);
         return;
       }
+
       const [filesRes, notesRes] = await Promise.all([
         repo.listFiles(selectedDocId),
         repo.listNotes(selectedDocId),
       ]);
-      if (cancelled) return;
+      if (!active) return;
 
       if (filesRes.ok) setFiles(filesRes.data ?? []);
-      else setError(filesRes.error.message ?? 'Fehler beim Laden der Dateien');
+      else setFiles([]);
 
       if (notesRes.ok) setNotes(notesRes.data ?? []);
-      else setError(notesRes.error.message ?? 'Fehler beim Laden der Notizen');
+      else setNotes([]);
     })();
-    return () => { cancelled = true; };
-  }, [selectedDocId, repo]);
 
-  // „NEU“-Badge (nur Agent) – defensiv auf docs (Array) gerechnet
+    return () => { active = false; };
+  }, [selectedDocId, allowed, repo]);
+
+  // „NEU“-Badge (nur Agent)
   const newDocIds: string[] = useMemo(() => {
     if (!isAgent) return [];
     return (docs ?? [])
@@ -154,25 +174,23 @@ export default function DocumentsTab({ propertyId }: Props) {
       .map(d => d.id);
   }, [docs, isAgent]);
 
-  // Gesehen-Markierung (nur Agent)
+  // Markiere gesehen (nur Agent)
   useEffect(() => {
-    let cancelled = false;
+    let active = true;
     (async () => {
-      if (!isAgent || !selectedDocId) return;
+      if (!isAgent || !selectedDocId || allowed !== true) return;
       if (!newDocIds.includes(selectedDocId)) return;
 
       const whenISO = new Date().toISOString();
       const res = await repo.markSeenByAgent(selectedDocId, whenISO);
-      if (cancelled) return;
+      if (!active) return;
 
       if (res.ok) {
         setDocs(prev => (prev ?? []).map(d => d.id === selectedDocId ? { ...d, last_seen_at_agent: whenISO } : d));
-      } else {
-        console.warn('markSeenByAgent fehlgeschlagen:', res.error);
       }
     })();
-    return () => { cancelled = true; };
-  }, [selectedDocId, isAgent, newDocIds, repo]);
+    return () => { active = false; };
+  }, [selectedDocId, isAgent, allowed, newDocIds, repo]);
 
   const selectedDoc = useMemo(
     () => (docs ?? []).find(d => d.id === selectedDocId) ?? null,
@@ -180,23 +198,32 @@ export default function DocumentsTab({ propertyId }: Props) {
   );
   const documentTypeKey = selectedDoc?.type?.key ?? 'unknown';
 
-  // UI-States
-  if (loading) return <div className="p-4">Lade Dokumente…</div>;
-  if (isAgent === null) return <div className="p-4">Prüfe Zugriffsrechte …</div>;
-  if (error) return <div className="p-4 text-red-600">{error}</div>;
+  // ---------- UI States ----------
+  if (!authReady || isAgent === null) {
+    return <div className="p-4">Prüfe Zugriffsrechte …</div>;
+  }
+
+  if (allowed === false) {
+    return <div className="p-4 text-red-600">{error ?? 'Kein Zugriff auf dieses Objekt.'}</div>;
+  }
+
+  // allowed === true ab hier
+  if (loadingDocs) {
+    return <div className="p-4">Lade Dokumente…</div>;
+  }
 
   return (
     <div className="grid grid-cols-12 gap-4">
       {/* Linke Liste */}
       <div className={`${collapsed ? 'hidden md:block md:col-span-3' : 'col-span-12 md:col-span-3'}`}>
         <DocumentListPanel
-          documents={docs}
+          documents={docs ?? []}
           selectedId={selectedDocId}
           onSelect={setSelectedDocId}
           collapsed={collapsed}
           onToggleCollapsed={() => setCollapsed(c => !c)}
           isAgent={!!isAgent}
-          newIds={newDocIds}
+          newIds={newDocIds ?? []}
         />
       </div>
 
@@ -219,7 +246,7 @@ export default function DocumentsTab({ propertyId }: Props) {
               )}
             </div>
 
-            {/* Customer-Hinweis (nur wenn kein Agent) */}
+            {/* Customer-Hinweis */}
             {!isAgent && (
               <div className="rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-800">
                 Du kannst hier fehlende Dateien hochladen. Die Sichtbarkeit einzelner Dateien steuert der Makler.
@@ -242,10 +269,13 @@ export default function DocumentsTab({ propertyId }: Props) {
                       repo.listPropertyDocuments(propertyId),
                     ]);
                     if (r1.ok) setFiles(r1.data ?? []);
-                    if (r2.ok) setDocs((r2.data.items ?? []));
+                    if (r2.ok) {
+                      const items = r2.data?.items ?? [];
+                      setDocs(items);
+                      // selectedDocId bleibt gleich; optional aktualisieren
+                    }
                   }}
                 />
-                {/* Platzhalter Statusanzeige */}
                 <StatusBadge status={selectedDoc.status} />
               </div>
             </div>
@@ -253,15 +283,15 @@ export default function DocumentsTab({ propertyId }: Props) {
             <div className="grid grid-cols-12 gap-4">
               <div className="col-span-12 lg:col-span-6">
                 <DocumentFileList
-                  files={files}
+                  files={files ?? []}
                   onView={setSelectedFile}
                   onDeleted={async () => {
                     const r = await repo.listFiles(selectedDoc.id);
-                    if (r.ok) setFiles(r.data ?? []);
+                    setFiles(r.ok ? (r.data ?? []) : []);
                   }}
                   onToggleShare={async () => {
                     const r = await repo.listFiles(selectedDoc.id);
-                    if (r.ok) setFiles(r.data ?? []);
+                    setFiles(r.ok ? (r.data ?? []) : []);
                   }}
                   isAgent={!!isAgent}
                 />
@@ -272,7 +302,7 @@ export default function DocumentsTab({ propertyId }: Props) {
             </div>
 
             <DocumentNotes
-              notes={notes}
+              notes={notes ?? []}
               canEdit={!!isAgent}
               onAdd={async (text) => {
                 const r = await repo.addNote(selectedDoc.id, text);
@@ -288,19 +318,20 @@ export default function DocumentsTab({ propertyId }: Props) {
               }}
             />
 
-            {/* Nur Agenten dürfen neue Dokument-Typen hinzufügen */}
             {isAgent && (
               <DocumentAddModal
                 propertyId={propertyId}
-                defaultTypeKey={documentTypeKey}
+                defaultTypeKey={selectedDoc?.type?.key ?? 'unknown'}
                 open={showAdd}
                 onOpenChange={setShowAdd}
                 onCreated={async () => {
                   const r = await repo.listPropertyDocuments(propertyId);
                   if (r.ok) {
-                    const items = r.data.items ?? [];
+                    const items = r.data?.items ?? [];
                     setDocs(items);
-                    if (!selectedDocId && items.length > 0) setSelectedDocId(items?.[0]?.id ?? null);
+                    if (!selectedDocId && items.length > 0) {
+                      setSelectedDocId(items[0]?.id ?? null);
+                    }
                   }
                 }}
               />
