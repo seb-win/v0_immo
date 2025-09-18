@@ -1,10 +1,11 @@
-// /app/api/intake/runs/route.ts
 import { NextResponse } from 'next/server';
-import { supabaseAdmin } from '@/lib/supabase/admin';
+import { getSupabaseAdmin } from '@/lib/supabase/admin';
 
 export const runtime = 'nodejs';
 
 export async function GET(req: Request) {
+  const supabaseAdmin = getSupabaseAdmin();
+
   const { searchParams } = new URL(req.url);
   const objectId = searchParams.get('objectId');
   if (!objectId) return NextResponse.json({ error: 'objectId missing' }, { status: 400 });

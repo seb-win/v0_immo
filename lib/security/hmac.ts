@@ -1,4 +1,3 @@
-// /lib/security/hmac.ts
 import { createHmac, timingSafeEqual } from 'node:crypto';
 
 export function signHmacSHA256(rawBody: string, secret: string) {
@@ -6,12 +5,8 @@ export function signHmacSHA256(rawBody: string, secret: string) {
   return `sha256=${sig}`;
 }
 
-export function verifyHmacSHA256(
-  rawBody: string,
-  header: string | null | undefined,
-  secret: string
-) {
-  if (!secret) return true; // dev: allow no-secret
+export function verifyHmacSHA256(rawBody: string, header: string | null | undefined, secret: string) {
+  if (!secret) return true; // dev
   if (!header) return false;
   const expected = signHmacSHA256(rawBody, secret);
   try {

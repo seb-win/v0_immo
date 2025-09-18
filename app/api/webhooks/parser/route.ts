@@ -1,21 +1,19 @@
-// /app/api/webhooks/parser/route.ts
 import { NextResponse } from 'next/server';
-import { supabaseAdmin } from '@/lib/supabase/admin';
+import { getSupabaseAdmin } from '@/lib/supabase/admin';
 import { verifyHmacSHA256 } from '@/lib/security/hmac';
 
 export const runtime = 'nodejs';
-
 const HMAC_SECRET = process.env.INTAKE_HMAC_SECRET || '';
 
 export async function POST(req: Request) {
+  const supabaseAdmin = getSupabaseAdmin();
+
   const raw = await req.text();
   const ok = verifyHmacSHA256(raw, req.headers.get('x-signature'), HMAC_SECRET);
   const evt = JSON.parse(raw || '{}');
 
   const jobId: string | undefined = evt?.job_id;
-  if (!jobId) {
-    return NextResponse.json({ error: 'job_id missing' }, { status: 400 });
-  }
+  if (!jobId) return NextResponse.json({ error: 'job_id missing' }, { status: 400 });
 
   await supabaseAdmin.from('intake_webhook_events').insert({
     job_id: jobId,
@@ -24,7 +22,6 @@ export async function POST(req: Request) {
     signature_valid: ok,
   });
 
-  // Enforce HMAC in Prod, optional in Dev:
   // if (!ok) return NextResponse.json({ error: 'invalid signature' }, { status: 401 });
 
   const { data: jobRow, error: jErr } = await supabaseAdmin
@@ -33,9 +30,7 @@ export async function POST(req: Request) {
     .eq('id', jobId)
     .maybeSingle();
 
-  if (jErr || !jobRow) {
-    return NextResponse.json({ error: 'job not found' }, { status: 404 });
-  }
+  if (jErr || !jobRow) return NextResponse.json({ error: 'job not found' }, { status: 404 });
   if (jobRow.status === 'succeeded' || jobRow.status === 'failed') {
     return NextResponse.json({ ok: true, idempotent: true });
   }
