@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { getSupabaseAdmin } from '@/lib/supabase/admin';
 import { IntakeRunDto } from '@/lib/intake/types';
 import { randomUUID, createHmac } from 'node:crypto';
+const AUTOSIM = process.env.INTAKE_AUTOSIM as 'ok' | 'fail' | undefined;
 
 export const runtime = 'nodejs';
 
@@ -55,19 +56,28 @@ export async function POST(req: Request) {
     await supabaseAdmin.from('object_intakes').update({ status: 'processing', started_at: nowIso }).eq('id', intakeId);
 
     // DEV simulation: sofort den Webhook rufen
-    if (simulate === 'ok' || simulate === 'fail') {
+    const sim = (simulate as 'ok' | 'fail' | null) ?? AUTOSIM;
+    if (sim === 'ok' || sim === 'fail') {
       const payload: any = {
         job_id: jobId,
         intake_id: intakeId,
-        status: simulate === 'ok' ? 'succeeded' : 'failed',
-        data: simulate === 'ok' ? { schema_version: 'v1', dummy: true, adresse: 'Musterstraße 12', wohnflaeche_qm: 120 } : undefined,
-        error: simulate === 'fail' ? 'Demo-Fehler: Parser konnte PDF nicht lesen' : undefined,
+        status: sim === 'ok' ? 'succeeded' : 'failed',
+        data: sim === 'ok'
+          ? { schema_version: 'v1', dummy: true, adresse: 'Musterstraße 12', wohnflaeche_qm: 120 }
+          : undefined,
+        error: sim === 'fail' ? 'Demo-Fehler: Parser konnte PDF nicht lesen' : undefined,
         duration_ms: 1234,
         parser_version: 'dev-sim',
       };
       const raw = JSON.stringify(payload);
-      const sig = HMAC_SECRET ? `sha256=${createHmac('sha256', HMAC_SECRET).update(raw).digest('hex')}` : '';
-      await fetch(CALLBACK_URL, { method: 'POST', headers: { 'content-type': 'application/json', 'x-signature': sig }, body: raw });
+      const sig = HMAC_SECRET
+        ? `sha256=${createHmac('sha256', HMAC_SECRET).update(raw).digest('hex')}`
+        : '';
+      await fetch(CALLBACK_URL, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-signature': sig },
+        body: raw,
+      });
     }
 
     const run: IntakeRunDto = { id: intakeId, filename, uploadedAt: nowIso, status: 'queued' };
