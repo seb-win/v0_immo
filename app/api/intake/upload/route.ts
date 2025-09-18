@@ -2,23 +2,24 @@ import { NextResponse } from 'next/server';
 import { getSupabaseAdmin } from '@/lib/supabase/admin';
 import { IntakeRunDto } from '@/lib/intake/types';
 import { randomUUID, createHmac } from 'node:crypto';
-const AUTOSIM = process.env.INTAKE_AUTOSIM as 'ok' | 'fail' | undefined;
 
 export const runtime = 'nodejs';
 
-const CALLBACK_URL =
-  process.env.INTAKE_CALLBACK_URL ||
-  `${process.env.NEXT_PUBLIC_BASE_URL}/api/webhooks/parser`;
 const HMAC_SECRET = process.env.INTAKE_HMAC_SECRET || '';
+const AUTOSIM = process.env.INTAKE_AUTOSIM as 'ok' | 'fail' | undefined;
+const CALLBACK_ENV = process.env.INTAKE_CALLBACK_URL || null; // optional override per ENV
 
 export async function POST(req: Request) {
   try {
     const supabaseAdmin = getSupabaseAdmin();
 
-    const { searchParams } = new URL(req.url);
+    const { searchParams, origin } = new URL(req.url);
     const objectId = searchParams.get('objectId');
     const simulate = searchParams.get('simulate'); // 'ok' | 'fail'
     if (!objectId) return NextResponse.json({ error: 'objectId missing' }, { status: 400 });
+
+    // ► Callback-URL robust bestimmen (ENV > Request-Origin)
+    const callbackUrl = CALLBACK_ENV ?? `${origin}/api/webhooks/parser`;
 
     const form = await req.formData();
     const file = form.get('file') as File | null;
@@ -46,7 +47,7 @@ export async function POST(req: Request) {
 
     const jobId = randomUUID();
     const { error: jErr } = await supabaseAdmin.from('intake_jobs').insert({
-      id: jobId, intake_id: intakeId, status: 'queued', webhook_target: CALLBACK_URL,
+      id: jobId, intake_id: intakeId, status: 'queued', webhook_target: callbackUrl,
     });
     if (jErr) return NextResponse.json({ error: jErr.message }, { status: 500 });
 
@@ -55,7 +56,7 @@ export async function POST(req: Request) {
     await supabaseAdmin.from('intake_jobs').update({ status: 'processing', started_at: nowIso }).eq('id', jobId);
     await supabaseAdmin.from('object_intakes').update({ status: 'processing', started_at: nowIso }).eq('id', intakeId);
 
-    // DEV simulation: sofort den Webhook rufen
+    // DEV-Autosim: ENV oder Query entscheidet
     const sim = (simulate as 'ok' | 'fail' | null) ?? AUTOSIM;
     if (sim === 'ok' || sim === 'fail') {
       const payload: any = {
@@ -73,7 +74,9 @@ export async function POST(req: Request) {
       const sig = HMAC_SECRET
         ? `sha256=${createHmac('sha256', HMAC_SECRET).update(raw).digest('hex')}`
         : '';
-      await fetch(CALLBACK_URL, {
+
+      // Wichtig: callbackUrl statt statischer CALLBACK_URL
+      await fetch(callbackUrl, {
         method: 'POST',
         headers: { 'content-type': 'application/json', 'x-signature': sig },
         body: raw,
