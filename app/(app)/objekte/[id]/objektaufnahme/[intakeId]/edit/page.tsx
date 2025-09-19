@@ -2,17 +2,28 @@
 import { useEffect, useState } from 'react';
 
 export default function IntakeEditorPage({ params }: { params: { id: string; intakeId: string } }) {
-  const { intakeId } = params;
+  const { intakeId, id: objectId } = params;
   const [loading, setLoading] = useState(true);
-  const [form, setForm] = useState<any>({});
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [msg, setMsg] = useState<string | null>(null);
 
-  useEffect(() => {
-    let alive = true;
-    (async () => {
-      setLoading(true);
+  const [form, setForm] = useState<any>({
+    adresse: '',
+    wohnflaeche_qm: '',
+    zimmer: '',
+    baujahr: '',
+    energie_kennwert: '',
+    beschreibung: '',
+  });
+
+  async function loadData() {
+    setLoading(true);
+    setError(null);
+    try {
       const res = await fetch(`/api/intake/editor?intakeId=${encodeURIComponent(intakeId)}`, { cache: 'no-store' });
       const json = await res.json();
-      if (!alive) return;
+      if (!res.ok) throw new Error(json?.error || 'load_failed');
       const m = json?.merged ?? {};
       setForm({
         adresse: m.adresse ?? '',
@@ -22,48 +33,72 @@ export default function IntakeEditorPage({ params }: { params: { id: string; int
         energie_kennwert: m.energie_kennwert ?? '',
         beschreibung: m.beschreibung ?? '',
       });
+    } catch (e: any) {
+      setError(e?.message ?? 'Fehler beim Laden');
+    } finally {
       setLoading(false);
-    })();
-    return () => { alive = false; };
-  }, [intakeId]);
+    }
+  }
+
+  useEffect(() => { loadData(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [intakeId]);
 
   function onChange<K extends keyof typeof form>(key: K, value: (typeof form)[K]) {
     setForm(prev => ({ ...prev, [key]: value }));
   }
 
   async function onSave() {
-    const patch: any = {
-      schema_version: 'v1',
-      adresse: form.adresse || undefined,
-      wohnflaeche_qm: form.wohnflaeche_qm === '' ? undefined : Number(form.wohnflaeche_qm),
-      zimmer: form.zimmer === '' ? undefined : Number(form.zimmer),
-      baujahr: form.baujahr === '' ? undefined : Number(form.baujahr),
-      energie_kennwert: form.energie_kennwert === '' ? undefined : Number(form.energie_kennwert),
-      beschreibung: form.beschreibung || undefined,
-    };
-    const res = await fetch('/api/intake/editor/save', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ intakeId, patch }),
-    });
-    if (!res.ok) {
-      // TODO: toast error
-    } else {
-      // TODO: toast success
+    setSaving(true);
+    setError(null);
+    setMsg(null);
+    try {
+      const patch: any = {
+        schema_version: 'v1',
+        adresse: form.adresse || undefined,
+        wohnflaeche_qm: form.wohnflaeche_qm,
+        zimmer: form.zimmer,
+        baujahr: form.baujahr,
+        energie_kennwert: form.energie_kennwert,
+        beschreibung: form.beschreibung || undefined,
+      };
+      const res = await fetch('/api/intake/editor/save', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ intakeId, patch }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json?.error || 'save_failed');
+      setMsg('Gespeichert.');
+      // Nachladen, damit gemergte Sicht sicher aktuell ist
+      await loadData();
+    } catch (e: any) {
+      setError(e?.message ?? 'Fehler beim Speichern');
+    } finally {
+      setSaving(false);
     }
   }
 
-  if (loading) return <div className="p-4">Lade Editor …</div>;
+  if (loading) return <div className="p-4 text-sm text-gray-600">Lade Editor …</div>;
 
   return (
     <div className="space-y-6">
       <header className="flex items-center justify-between">
-        <h2 className="text-lg font-semibold">Objektaufnahme bearbeiten</h2>
+        <div>
+          <h2 className="text-lg font-semibold">Objektaufnahme bearbeiten</h2>
+          <p className="text-xs text-gray-500">Objekt: {objectId} · Intake: {intakeId}</p>
+        </div>
         <div className="flex gap-2">
-          <button className="px-3 py-1.5 rounded-md border text-sm" onClick={onSave}>Speichern</button>
-          {/* Später: In Objekt übernehmen */}
+          <button
+            className={`px-3 py-1.5 rounded-md text-sm border ${saving ? 'opacity-60 cursor-not-allowed' : ''}`}
+            onClick={onSave}
+            disabled={saving}
+          >
+            {saving ? 'Speichern…' : 'Speichern'}
+          </button>
         </div>
       </header>
+
+      {error && <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>}
+      {msg && <div className="rounded-md border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-700">{msg}</div>}
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         <section className="border rounded-xl p-4">

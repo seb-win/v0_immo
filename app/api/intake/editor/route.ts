@@ -1,3 +1,4 @@
+// /app/api/intake/editor/route.ts
 import { NextResponse } from 'next/server';
 import { getSupabaseAdmin } from '@/lib/supabase/admin';
 
@@ -28,5 +29,11 @@ export async function GET(req: Request) {
   const d = draft?.data ?? {};
   const merged = deepMerge(raw, d);
 
-  return NextResponse.json({ raw, draft: d, merged, rawAt: res?.created_at ?? null, draftAt: draft?.updated_at ?? null });
+  return NextResponse.json({
+    raw,
+    draft: d,
+    merged,
+    rawAt: res?.created_at ?? null,
+    draftAt: draft?.updated_at ?? null,
+  });
 }
