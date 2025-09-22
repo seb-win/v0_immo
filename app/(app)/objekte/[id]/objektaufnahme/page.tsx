@@ -1,11 +1,53 @@
 'use client';
 
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { IntakeRunDto as IntakeRun } from '@/lib/intake/types';
+import React, { useMemo, useState } from 'react';
+import { IntakeRunDto } from '@/lib/intake/types';
 import { UploadCard } from '@/components/object/UploadCard';
 import { RunsTable } from '@/components/object/RunsTable';
 import { RunDetailsDrawer } from '@/components/object/RunDetailsDrawer';
 import { ResultBox } from '@/components/object/ResultBox';
+import { ObjectIntakePanel } from '@/components/object/ObjectIntakePanel';
+import { IntakeDevBar } from '@/components/object/IntakeDevBar';
+
+export default function ObjektaufnahmePage({ params }: { params: { id: string } }) {
+  const objectId = params.id;
+  const [runs, setRuns] = useState<IntakeRunDto[]>([]);
+  const [open, setOpen] = useState(false);
+  const [activeRunId, setActiveRunId] = useState<string | null>(null);
+
+  function upsertRun(next: IntakeRunDto) {
+    setRuns(prev => {
+      const idx = prev.findIndex(r => r.id === next.id);
+      if (idx === -1) return [next, ...prev];
+      const copy = [...prev];
+      copy[idx] = { ...copy[idx], ...next };
+      return copy;
+    });
+  }
+
+  const activeRun = useMemo(() => runs.find(r => r.id === activeRunId) ?? null, [runs, activeRunId]);
+  const latestSucceeded = useMemo(() => runs.find(r => r.status === 'succeeded') ?? null, [runs]);
+
+  return (
+    <div className="space-y-8">
+      {/* DEV-Tools nur in Nicht-Prod */}
+      <IntakeDevBar objectId={objectId} />
+
+      {/* Zentrales, editierbares Panel */}
+      <ObjectIntakePanel objectId={objectId} />
+
+      {/* Upload + Historie (read-only) */}
+      <UploadCard objectId={objectId} onRunCreated={upsertRun} />
+      <RunsTable
+        runs={runs}
+        onOpenDetails={(id) => { setActiveRunId(id); setOpen(true); }}
+        editorHrefFor={() => undefined /* Einzel-Run-Editing abgeschaltet */}
+      />
+      <ResultBox latest={latestSucceeded ?? null} objectId={objectId} />
+      <RunDetailsDrawer open={open} onOpenChange={setOpen} run={activeRun} />
+    </div>
+  );
+}
 
 type RunStatus = IntakeRun['status']; // 'queued' | 'processing' | 'succeeded' | 'failed'
 
