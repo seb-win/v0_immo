@@ -1,4 +1,6 @@
+// /components/object/ObjectIntakePanel.tsx
 'use client';
+
 import { useEffect, useMemo, useState } from 'react';
 
 type RunMeta = { id: string; filename: string | null; finished_at: string | null };
@@ -14,7 +16,7 @@ type StateResp = {
 
 const FIELDS: { key: string; label: string; format?: (v:any)=>string }[] = [
   { key: 'adresse', label: 'Adresse' },
-  { key: 'wohnflaeche_qm', label: 'Wohnfläche (m²)' , format: v => v==null?'':String(v) },
+  { key: 'wohnflaeche_qm', label: 'Wohnfläche (m²)', format: v => v==null?'':String(v) },
   { key: 'zimmer', label: 'Zimmer', format: v => v==null?'':String(v) },
   { key: 'baujahr', label: 'Baujahr', format: v => v==null?'':String(v) },
   { key: 'energie_kennwert', label: 'Energie-Kennwert', format: v => v==null?'':String(v) },
@@ -47,15 +49,15 @@ export function ObjectIntakePanel({ objectId }: { objectId: string }) {
 
   useEffect(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [objectId]);
 
+  // Nur zwei Zustände: RAW (aus Aufnahme) oder DIFF (bearbeitet)
   const provenance = useMemo(() => {
     if (!state) return {};
-    const p: Record<string,'RAW'|'OBJ'|'DIFF'|null> = {};
+    const p: Record<string,'RAW'|'DIFF'> = {};
     for (const f of FIELDS) {
       const k = f.key;
       const raw = state.raw?.[k];
       const ov  = state.overrides?.[k];
-      if (ov === undefined) p[k] = 'RAW';
-      else if (ov === raw) p[k] = 'OBJ';     // technisch gleich, aber als Override gesetzt (kommt vor)
+      if (ov === undefined || ov === raw) p[k] = 'RAW';
       else p[k] = 'DIFF';
     }
     return p;
@@ -68,11 +70,11 @@ export function ObjectIntakePanel({ objectId }: { objectId: string }) {
   async function onSave() {
     setSaving(true); setError(null);
     try {
-      // baue Patch nur mit relevanten Keys
       const patch: Record<string, any> = {};
       for (const f of FIELDS) patch[f.key] = form[f.key];
       const res = await fetch(`/api/objects/${objectId}/overrides`, {
-        method: 'POST', headers: { 'content-type':'application/json' },
+        method: 'POST',
+        headers: { 'content-type':'application/json' },
         body: JSON.stringify({ patch }),
       });
       const json = await res.json();
@@ -87,17 +89,16 @@ export function ObjectIntakePanel({ objectId }: { objectId: string }) {
   }
 
   async function resetField(k: string) {
-    const res = await fetch(`/api/objects/${objectId}/overrides?keys=${encodeURIComponent(k)}`, { method: 'DELETE' });
-    await res.json();
+    await fetch(`/api/objects/${objectId}/overrides?keys=${encodeURIComponent(k)}`, { method: 'DELETE' });
     await load();
   }
 
   async function pickSource(intakeId: string) {
-    const res = await fetch(`/api/objects/${objectId}/intake-source`, {
-      method: 'POST', headers: { 'content-type':'application/json' },
+    await fetch(`/api/objects/${objectId}/intake-source`, {
+      method: 'POST',
+      headers: { 'content-type':'application/json' },
       body: JSON.stringify({ intakeId })
     });
-    await res.json();
     await load();
   }
 
@@ -120,7 +121,7 @@ export function ObjectIntakePanel({ objectId }: { objectId: string }) {
             <option value="" disabled>Quelle wählen…</option>
             {state.runs.map(r => (
               <option key={r.id} value={r.id}>
-                {r.finished_at ? new Date(r.finished_at).toLocaleDateString() : 'ohne Datum'} · {r.filename ?? 'upload.pdf'}
+                {(r.finished_at ? new Date(r.finished_at).toLocaleDateString() : 'ohne Datum') + ' · ' + (r.filename ?? 'upload.pdf')}
               </option>
             ))}
           </select>
@@ -144,15 +145,17 @@ export function ObjectIntakePanel({ objectId }: { objectId: string }) {
           const val = edit ? form[f.key] : state.merged?.[f.key];
           const label = f.label;
           const pv = provenance[f.key];
-          const badge = pv==='RAW' ? 'bg-gray-100 text-gray-700' : pv==='OBJ' ? 'bg-blue-100 text-blue-700' : 'bg-green-100 text-green-700';
-          const badgeText = pv==='RAW' ? 'aus Aufnahme' : pv==='OBJ' ? 'Override' : 'Override ≠ Aufnahme';
+          const badgeClass = pv==='RAW'
+            ? 'bg-gray-100 text-gray-700'
+            : 'bg-green-100 text-green-700';
+          const badgeText = pv==='RAW' ? 'Aus Aufnahme' : 'Bearbeitet';
           const display = f.format ? f.format(val) : (val ?? '');
 
           return (
             <div key={f.key} className="border rounded-xl p-4">
               <div className="flex items-center justify-between">
                 <div className="font-medium">{label}</div>
-                <span className={`text-xs px-2 py-0.5 rounded ${badge}`}>{badgeText}</span>
+                <span className={`text-xs px-2 py-0.5 rounded ${badgeClass}`}>{badgeText}</span>
               </div>
 
               {!edit ? (
@@ -175,9 +178,12 @@ export function ObjectIntakePanel({ objectId }: { objectId: string }) {
                       onChange={e => onChange(f.key, e.target.value)}
                     />
                   )}
-                  {provenance[f.key] !== 'RAW' && (
-                    <button className="mt-2 text-xs underline underline-offset-4"
-                            onClick={()=>resetField(f.key)}>
+                  {provenance[f.key] === 'DIFF' && (
+                    <button
+                      className="mt-2 text-xs underline underline-offset-4"
+                      onClick={()=>resetField(f.key)}
+                      title="Override entfernen und Aufnahmewert verwenden"
+                    >
                       Aufnahmewert wiederherstellen
                     </button>
                   )}

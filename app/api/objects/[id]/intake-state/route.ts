@@ -1,9 +1,17 @@
+// /app/api/objects/[id]/intake-state/route.ts
 import { NextResponse } from 'next/server';
 import { getSupabaseAdmin } from '@/lib/supabase/admin';
 
 export const runtime = 'nodejs';
 
-const ALLOWED_FIELDS = new Set(['adresse','wohnflaeche_qm','zimmer','baujahr','energie_kennwert','beschreibung']);
+const ALLOWED_FIELDS = new Set([
+  'adresse',
+  'wohnflaeche_qm',
+  'zimmer',
+  'baujahr',
+  'energie_kennwert',
+  'beschreibung',
+]);
 
 const DUMMY_RAW = {
   schema_version: 'v1',
@@ -12,7 +20,7 @@ const DUMMY_RAW = {
   zimmer: 3,
   baujahr: 1992,
   energie_kennwert: 85,
-  beschreibung: 'Helle 3-Zimmer-Wohnung mit Südbalkon. Dummy-Daten.',
+  beschreibung: 'Helle 3-Zimmer-Wohnung mit Südbalkon. (Dummy)',
 };
 
 function deepMerge(a: any, b: any) {
@@ -29,7 +37,7 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
   const objectId = params.id;
   const supa = getSupabaseAdmin();
 
-  // 1) overrides-Zeile holen/erzwingen
+  // overrides holen
   const { data: ov, error: ovErr } = await supa
     .from('object_intake_overrides')
     .select('base_intake_id, data, updated_at')
@@ -38,7 +46,7 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
 
   if (ovErr) return NextResponse.json({ error: ovErr.message }, { status: 500 });
 
-  // 2) letzte erfolgreiche Aufnahme (für Fallback/Auto-Quelle)
+  // last succeeded (für Fallback/Auto-Quelle)
   const { data: lastSucceeded } = await supa
     .from('object_intakes')
     .select('id, filename, finished_at')
@@ -47,21 +55,23 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
     .order('finished_at', { ascending: false })
     .limit(1);
 
-  // 3) aktive Quelle bestimmen
   const activeIntakeId = ov?.base_intake_id ?? lastSucceeded?.[0]?.id ?? null;
 
-  // 4) Rohdaten laden (oder Dummy wenn keine Quelle)
+  // raw laden oder Dummy
   let raw = DUMMY_RAW;
   let usedSource: 'run' | 'dummy' = 'dummy';
+
   if (activeIntakeId) {
     const { data: res } = await supa
       .from('intake_results')
       .select('data')
       .eq('intake_id', activeIntakeId)
       .maybeSingle();
+
     if (res?.data && typeof res.data === 'object') {
-      // Filter auf erlaubte Felder (defensiv)
-      raw = Object.fromEntries(Object.entries(res.data).filter(([k]) => ALLOWED_FIELDS.has(k)));
+      raw = Object.fromEntries(
+        Object.entries(res.data).filter(([k]) => ALLOWED_FIELDS.has(k))
+      );
       usedSource = 'run';
     }
   }
@@ -69,7 +79,7 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
   const overrides = ov?.data ?? {};
   const merged = deepMerge(raw, overrides);
 
-  // 5) Runs-Liste für Quellwahl (nur succeeded)
+  // runs liste (nur succeeded)
   const { data: runs, error: rErr } = await supa
     .from('object_intakes')
     .select('id, filename, finished_at')
@@ -81,7 +91,7 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
 
   return NextResponse.json({
     activeIntakeId,
-    usedSource,        // 'run' | 'dummy'
+    usedSource, // 'run' | 'dummy'
     raw,
     overrides,
     merged,
