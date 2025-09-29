@@ -1,19 +1,13 @@
 'use client';
 
-import React, {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { IntakeRunDto } from '@/lib/intake/types';
 import { UploadCard } from '@/components/object/UploadCard';
 import { RunsTable } from '@/components/object/RunsTable';
 import { RunDetailsDrawer } from '@/components/object/RunDetailsDrawer';
 import { ResultBox } from '@/components/object/ResultBox';
-import { ObjectIntakePanel } from '@/components/object/ObjectIntakePanel';
 import { IntakeDevBar } from '@/components/object/IntakeDevBar';
+import { ActiveSourcePreview } from '@/components/object/ActiveSourcePreview';
 
 type IntakeRun = IntakeRunDto;
 
@@ -26,7 +20,6 @@ export default function ObjektaufnahmePage({ params }: { params: { id: string } 
   const [loading, setLoading] = useState<boolean>(true);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // ---- Helpers ----
   const upsertRun = useCallback((next: IntakeRun) => {
     setRuns(prev => {
       const idx = prev.findIndex(r => r.id === next.id);
@@ -57,10 +50,8 @@ export default function ObjektaufnahmePage({ params }: { params: { id: string } 
     }
   }, [objectId]);
 
-  // ---- Initial load ----
   useEffect(() => { setLoading(true); fetchRuns(); }, [fetchRuns]);
 
-  // ---- Revalidate on focus / tab-visible ----
   useEffect(() => {
     const onFocus = () => fetchRuns();
     const onVisibility = () => {
@@ -74,18 +65,10 @@ export default function ObjektaufnahmePage({ params }: { params: { id: string } 
     };
   }, [fetchRuns]);
 
-  // ---- Short polling while there are active runs ----
   useEffect(() => {
-    if (pollRef.current) {
-      clearInterval(pollRef.current);
-      pollRef.current = null;
-    }
-    if (hasActiveRuns) {
-      pollRef.current = setInterval(fetchRuns, 4000);
-    }
-    return () => {
-      if (pollRef.current) clearInterval(pollRef.current);
-    };
+    if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
+    if (hasActiveRuns) { pollRef.current = setInterval(fetchRuns, 4000); }
+    return () => { if (pollRef.current) clearInterval(pollRef.current); };
   }, [hasActiveRuns, fetchRuns]);
 
   const activeRun = useMemo(
@@ -98,7 +81,6 @@ export default function ObjektaufnahmePage({ params }: { params: { id: string } 
     [runs]
   );
 
-  // ---- UI ----
   if (loading) {
     return <div className="p-4 text-sm text-gray-600">Lade Verarbeitungen …</div>;
   }
@@ -108,14 +90,19 @@ export default function ObjektaufnahmePage({ params }: { params: { id: string } 
       {/* DEV-Tools (nicht in Prod) */}
       <IntakeDevBar objectId={objectId} />
 
-      {/* Zentrales, editierbares Objekt-Panel */}
-      <ObjectIntakePanel objectId={objectId} />
+      {/* Quellwahl + Rohdaten-Vorschau (read-only) */}
+      <div id="quelle">
+        <h2 className="text-lg font-semibold mb-2">Objektaufnahme: Quelle & Vorschau</h2>
+        <p className="text-sm text-gray-600 mb-3">
+          Hier steuerst du Uploads und die aktive Quelle. Bearbeiten der Inhalte erfolgt im Tab <b>Objektdaten</b>.
+        </p>
+        <ActiveSourcePreview objectId={objectId} />
+      </div>
 
       {/* Upload + Historie (read-only) */}
       <UploadCard
         objectId={objectId}
         onRunCreated={(newRun) => {
-          // Optimistisch einfügen, danach DB-Truth nachladen
           upsertRun(newRun);
           fetchRuns();
         }}
@@ -127,8 +114,7 @@ export default function ObjektaufnahmePage({ params }: { params: { id: string } 
           setActiveRunId(id);
           setOpen(true);
         }}
-        // Einzel-Run-Editing ist deaktiviert; wenn das Prop optional ist, einfach weglassen.
-        // Falls Pflicht: gib eine leere Funktion und verstecke die Spalte in RunsTable.
+        // Einzel-Run-Editing ist hier nicht vorgesehen
         editorHrefFor={undefined as unknown as (id: string) => string}
       />
 

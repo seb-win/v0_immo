@@ -14,6 +14,7 @@ const tabs = [
 { href: `${base}/dokumente`, label: 'Dokumente' },
 { href: `${base}/objektaufnahme`, label: 'Objektaufnahme' },
 { href: `${base}/bilder`, label: 'Bilder' },
+{ href: `${base}/objektdaten`, label: 'Objektdaten' },
 ];
 
 
