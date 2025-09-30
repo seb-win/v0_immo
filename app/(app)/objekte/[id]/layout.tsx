@@ -12,9 +12,9 @@ const base = `/objekte/${params.id}`;
 const tabs = [
 { href: base, label: 'Details' },
 { href: `${base}/dokumente`, label: 'Dokumente' },
+{ href: `${base}/objektdaten`, label: 'Objektdaten' },
 { href: `${base}/objektaufnahme`, label: 'Objektaufnahme' },
 { href: `${base}/bilder`, label: 'Bilder' },
-{ href: `${base}/objektdaten`, label: 'Objektdaten' },
 ];
 
 
@@ -24,7 +24,7 @@ return (
 <h1 className="text-2xl font-semibold">Objekt</h1>
 <nav className="flex items-center gap-2 border-b border-gray-200 dark:border-gray-800 pb-2">
 {tabs.map((t) => {
-const active = pathname === t.href;
+const active = pathname.startsWith(t.href);
 return (
 <Link
 key={t.href}

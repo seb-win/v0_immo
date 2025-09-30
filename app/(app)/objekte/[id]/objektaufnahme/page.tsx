@@ -5,9 +5,8 @@ import { IntakeRunDto } from '@/lib/intake/types';
 import { UploadCard } from '@/components/object/UploadCard';
 import { RunsTable } from '@/components/object/RunsTable';
 import { RunDetailsDrawer } from '@/components/object/RunDetailsDrawer';
-import { ResultBox } from '@/components/object/ResultBox';
 import { IntakeDevBar } from '@/components/object/IntakeDevBar';
-import { ActiveSourcePreview } from '@/components/object/ActiveSourcePreview';
+import { ActiveSourceCard } from '@/components/object/ActiveSourceCard';
 
 type IntakeRun = IntakeRunDto;
 
@@ -37,9 +36,7 @@ export default function ObjektaufnahmePage({ params }: { params: { id: string } 
 
   const fetchRuns = useCallback(async () => {
     try {
-      const res = await fetch(`/api/intake/runs?objectId=${encodeURIComponent(objectId)}`, {
-        cache: 'no-store',
-      });
+      const res = await fetch(`/api/intake/runs?objectId=${encodeURIComponent(objectId)}`, { cache: 'no-store' });
       const json = await res.json();
       const next: IntakeRun[] = json?.runs ?? [];
       setRuns(next);
@@ -54,9 +51,7 @@ export default function ObjektaufnahmePage({ params }: { params: { id: string } 
 
   useEffect(() => {
     const onFocus = () => fetchRuns();
-    const onVisibility = () => {
-      if (document.visibilityState === 'visible') fetchRuns();
-    };
+    const onVisibility = () => { if (document.visibilityState === 'visible') fetchRuns(); };
     window.addEventListener('focus', onFocus);
     document.addEventListener('visibilitychange', onVisibility);
     return () => {
@@ -71,15 +66,7 @@ export default function ObjektaufnahmePage({ params }: { params: { id: string } 
     return () => { if (pollRef.current) clearInterval(pollRef.current); };
   }, [hasActiveRuns, fetchRuns]);
 
-  const activeRun = useMemo(
-    () => runs.find(r => r.id === activeRunId) ?? null,
-    [runs, activeRunId]
-  );
-
-  const latestSucceeded = useMemo(
-    () => runs.find(r => r.status === 'succeeded') ?? null,
-    [runs]
-  );
+  const activeRun = useMemo(() => runs.find(r => r.id === activeRunId) ?? null, [runs, activeRunId]);
 
   if (loading) {
     return <div className="p-4 text-sm text-gray-600">Lade Verarbeitungen …</div>;
@@ -90,41 +77,36 @@ export default function ObjektaufnahmePage({ params }: { params: { id: string } 
       {/* DEV-Tools (nicht in Prod) */}
       <IntakeDevBar objectId={objectId} />
 
-      {/* Quellwahl + Rohdaten-Vorschau (read-only) */}
-      <div id="quelle">
-        <h2 className="text-lg font-semibold mb-2">Objektaufnahme: Quelle & Vorschau</h2>
-        <p className="text-sm text-gray-600 mb-3">
-          Hier steuerst du Uploads und die aktive Quelle. Bearbeiten der Inhalte erfolgt im Tab <b>Objektdaten</b>.
-        </p>
-        <ActiveSourcePreview objectId={objectId} />
-      </div>
+      {/* 1) Upload */}
+      <section className="space-y-2">
+        <h2 className="text-lg font-semibold">Interaktives PDF hochladen</h2>
+        <p className="text-sm text-gray-600">PDF auswählen oder hierher ziehen – die Verarbeitung startet automatisch.</p>
+        <UploadCard
+          objectId={objectId}
+          onRunCreated={(newRun) => {
+            upsertRun(newRun);
+            fetchRuns();
+          }}
+        />
+      </section>
 
-      {/* Upload + Historie (read-only) */}
-      <UploadCard
-        objectId={objectId}
-        onRunCreated={(newRun) => {
-          upsertRun(newRun);
-          fetchRuns();
-        }}
-      />
+      {/* 2) Verarbeitungen */}
+      <section className="space-y-2">
+        <h2 className="text-lg font-semibold">Verarbeitungen</h2>
+        {/* Optional: Filterchips / Suchfeld später */}
+        <RunsTable
+          runs={runs}
+          onOpenDetails={(id) => { setActiveRunId(id); setOpen(true); }}
+          // Einzel-Run-Editing ist hier nicht vorgesehen
+          editorHrefFor={undefined as unknown as (id: string) => string}
+        />
+        <RunDetailsDrawer open={open} onOpenChange={setOpen} run={activeRun} />
+      </section>
 
-      <RunsTable
-        runs={runs}
-        onOpenDetails={(id) => {
-          setActiveRunId(id);
-          setOpen(true);
-        }}
-        // Einzel-Run-Editing ist hier nicht vorgesehen
-        editorHrefFor={undefined as unknown as (id: string) => string}
-      />
-
-      <ResultBox latest={latestSucceeded ?? null} objectId={objectId} />
-
-      <RunDetailsDrawer
-        open={open}
-        onOpenChange={setOpen}
-        run={activeRun}
-      />
+      {/* 3) Aktive Quelle (kompakt) */}
+      <section className="space-y-2">
+        <ActiveSourceCard objectId={objectId} />
+      </section>
     </div>
   );
 }
