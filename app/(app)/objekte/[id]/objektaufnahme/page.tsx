@@ -77,10 +77,8 @@ export default function ObjektaufnahmePage({ params }: { params: { id: string } 
       {/* DEV-Tools (nicht in Prod) */}
       <IntakeDevBar objectId={objectId} />
 
-      {/* 1) Upload */}
-      <section className="space-y-2">
-        <h2 className="text-lg font-semibold">Interaktives PDF hochladen</h2>
-        <p className="text-sm text-gray-600">PDF auswählen oder hierher ziehen – die Verarbeitung startet automatisch.</p>
+      {/* 1) Upload (Heading kommt aus der UploadCard selbst) */}
+      <section>
         <UploadCard
           objectId={objectId}
           onRunCreated={(newRun) => {
@@ -93,18 +91,20 @@ export default function ObjektaufnahmePage({ params }: { params: { id: string } 
       {/* 2) Verarbeitungen */}
       <section className="space-y-2">
         <h2 className="text-lg font-semibold">Verarbeitungen</h2>
-        {/* Optional: Filterchips / Suchfeld später */}
         <RunsTable
+          objectId={objectId}
           runs={runs}
           onOpenDetails={(id) => { setActiveRunId(id); setOpen(true); }}
-          // Einzel-Run-Editing ist hier nicht vorgesehen
-          editorHrefFor={undefined as unknown as (id: string) => string}
+          onSourceChanged={() => {
+            // Signal an die ActiveSourceCard, damit sie neu lädt
+            window.dispatchEvent(new CustomEvent('intake:source-changed'));
+          }}
         />
         <RunDetailsDrawer open={open} onOpenChange={setOpen} run={activeRun} />
       </section>
 
       {/* 3) Aktive Quelle (kompakt) */}
-      <section className="space-y-2">
+      <section>
         <ActiveSourceCard objectId={objectId} />
       </section>
     </div>

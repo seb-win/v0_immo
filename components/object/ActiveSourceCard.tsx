@@ -47,6 +47,15 @@ export function ActiveSourceCard({ objectId }: { objectId: string }) {
 
   useEffect(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [objectId]);
 
+    // Aktualisiere, wenn andere Komponenten die Quelle umstellen
+  useEffect(() => {
+    const handler = () => load();
+    window.addEventListener('intake:source-changed', handler as EventListener);
+    return () => window.removeEventListener('intake:source-changed', handler as EventListener);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [objectId]);
+
+
   const headerText = useMemo(() => {
     if (!state) return '';
     if (state.usedSource === 'dummy') return 'Aktive Quelle: Testdaten (Dummy)';
