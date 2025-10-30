@@ -10,6 +10,10 @@ import { Button } from "@/components/ui/button"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Label } from "@/components/ui/label"
 
+// ------------------------
+// Datentyp für das Formular
+// ------------------------
+
 type FormData = {
   // Allgemein
   objektBezeichnung: string
@@ -38,22 +42,22 @@ type FormData = {
   stellplaetzeAnzahl: string
   stellplatzArt: string // Garage / Carport / Außenstellplatz
   balkonTerrasse: string // "Balkon", "Terrasse", "Balkon+Terrasse", "Keine"
-  gartenVorhanden: string // "ja/nein" o.ä.
+  gartenVorhanden: string // "ja/nein"
 
   // Technischer Zustand / Gebäudehülle
   dachZustand: string
   dachErneuertJahr: string
   fensterZustand: string
-  fensterTyp: string // "2-fach", "3-fach", "einfach", etc.
+  fensterTyp: string // "2-fach", "3-fach", ...
   waermedaemmungVorhanden: string // "ja/nein/teilweise"
   heizungTyp: string // "Gas", "Öl", "Fernwärme", "Wärmepumpe", etc.
   heizungBaujahr: string
   heizungLetzteWartung: string
   warmwasserErzeugung: string // "über Heizung", "Boiler", etc.
-  elektrikStand: string // "Alt (vor 1990)", "Teilmodernisiert", "Aktuell"
+  elektrikStand: string // "Alt", "Teilmodernisiert", "Aktuell"
   wasserLeitungenStand: string
   abwasserLeitungenStand: string
-  feuchtigkeitKeller: string // "Keine", "Leichte Feuchte", "Schimmel sichtbar"
+  feuchtigkeitKeller: string // "Keine", "Leichte Feuchte", ...
   schimmelSichtbar: string // "ja/nein"
   besondereMaengel: string // Freitext
 
@@ -61,7 +65,7 @@ type FormData = {
   energieausweisVorhanden: string // "ja/nein"
   energieausweisGueltigBis: string
   grundbuchauszugVorhanden: string // "ja/nein"
-  teilungserklaerungVorhanden: string // "ja/nein/nicht relevant (EFH)"
+  teilungserklaerungVorhanden: string // "ja/nein/nicht relevant"
   wegProtokolleVorhanden: string // "ja/nein/nicht relevant"
   kaminkehrerPruefungDatum: string
   heizungsWartungsvertrag: string // "ja/nein"
@@ -70,18 +74,21 @@ type FormData = {
 
   // Umgebung / Lage
   lageBeschreibungKurz: string
-  laermEinschaetzung: string // "ruhig", "leichter Straßenlärm", "Hauptstraße"
-  oepnvAnbindung: string // "S-Bahn fußläufig 5 Min", etc.
+  laermEinschaetzung: string // "ruhig", "leichter Straßenlärm", ...
+  oepnvAnbindung: string // "U-Bahn 6 Min zu Fuß", ...
   schulenKitasInNaehe: string
-  einkaufZuFuss: string // "Supermarkt <5 Min", etc.
+  einkaufZuFuss: string // "Supermarkt & Bäcker <5 Min", ...
 
   // Mehrfach-Auswahl Felder (Checkbox-Gruppen)
   ausstattungHighlights: string[]    // z.B. "Einbauküche", "Fußbodenheizung", ...
   modernisierungsBedarf: string[]    // z.B. "Fenster tauschen", "Bad sanieren", ...
-  rechtlicheBesonderheiten: string[] // z.B. "Nießbrauchrecht", "Erbbaurecht", ...
+  rechtlicheBesonderheiten: string[] // z.B. "Erbbaurecht", ...
 }
 
-// initiale Demo-Daten
+// ------------------------
+// Initiale Demo-Daten
+// ------------------------
+
 const initialData: FormData = {
   objektBezeichnung: "Einfamilienhaus Musterstraße 12",
   objektTyp: "Einfamilienhaus, freistehend",
@@ -96,7 +103,8 @@ const initialData: FormData = {
   energieKennwert: "73 kWh/m²a",
   sofortBezugsfreiAb: "01.12.2025",
   kaufpreisVorstellung: "1.250.000 €",
-  kurzbeschreibungZustand: "Sehr gepflegt, modernisierte Bäder, Keller leicht feucht im hinteren Bereich.",
+  kurzbeschreibungZustand:
+    "Sehr gepflegt, modernisierte Bäder, Keller leicht feucht im hinteren Bereich.",
 
   grundstuecksFlaecheQm: "410",
   wohnflaecheQm: "162",
@@ -124,7 +132,8 @@ const initialData: FormData = {
   abwasserLeitungenStand: "PVC, frei",
   feuchtigkeitKeller: "Leichte Feuchte an Außenwand hinten links",
   schimmelSichtbar: "Nein",
-  besondereMaengel: "Leichte Rissbildung im Putz an Südseite Terrasse.",
+  besondereMaengel:
+    "Leichte Rissbildung im Putz an Südseite Terrasse.",
 
   energieausweisVorhanden: "Ja",
   energieausweisGueltigBis: "08/2033",
@@ -136,7 +145,8 @@ const initialData: FormData = {
   baulastenauskunftVorhanden: "Ja, keine Einträge lt. Eigentümer",
   denkmalschutz: "Nein",
 
-  lageBeschreibungKurz: "Ruhige Seitenstraße in der Maxvorstadt, kaum Durchgangsverkehr.",
+  lageBeschreibungKurz:
+    "Ruhige Seitenstraße in der Maxvorstadt, kaum Durchgangsverkehr.",
   laermEinschaetzung: "ruhig",
   oepnvAnbindung: "U-Bahn 6 Min zu Fuß, Bus 2 Min",
   schulenKitasInNaehe: "Kita 300 m, Grundschule 700 m",
@@ -152,12 +162,13 @@ const initialData: FormData = {
     "Keller abdichten/hinterlüften",
     "Teilweise Fenster tauschen",
   ],
-  rechtlicheBesonderheiten: [
-    "Keine bekannten Rechte Dritter",
-  ],
+  rechtlicheBesonderheiten: ["Keine bekannten Rechte Dritter"],
 }
 
-// Hilfs-Checkbox-Optionen für Mehrfachauswahl-Felder
+// ------------------------
+// Optionen für Checkbox-Gruppen
+// ------------------------
+
 const AUSSTATTUNG_OPTIONS = [
   "Fußbodenheizung EG",
   "Einbauküche (2021)",
@@ -183,16 +194,20 @@ const RECHTLICH_OPTIONS = [
   "Keine bekannten Rechte Dritter",
 ]
 
+// ------------------------
+// Haupt-Panel
+// ------------------------
+
 export function DemoDataPanel() {
   const [isEditing, setIsEditing] = React.useState(false)
   const [formData, setFormData] = React.useState<FormData>(initialData)
 
   function handleChange<K extends keyof FormData>(key: K, value: FormData[K]) {
-    setFormData(prev => ({ ...prev, [key]: value }))
+    setFormData((prev) => ({ ...prev, [key]: value }))
   }
 
   function toggleArrayValue<K extends keyof FormData>(key: K, option: string) {
-    setFormData(prev => {
+    setFormData((prev) => {
       const current = prev[key]
       if (!Array.isArray(current)) return prev
       const exists = current.includes(option)
@@ -204,18 +219,19 @@ export function DemoDataPanel() {
   }
 
   function cancelEdit() {
-    setFormData(initialData) // verwerfe lokale Änderungen
+    setFormData(initialData) // lokal Änderungen verwerfen
     setIsEditing(false)
   }
 
   function saveEdit() {
     console.log("Speichern (lokal):", formData)
-    // später: API Call / Supabase update
+    // später: DB / API
     setIsEditing(false)
   }
 
   return (
     <Card className="h-[80vh] flex flex-col">
+      {/* Kopfbereich */}
       <CardHeader className="flex flex-row items-start justify-between gap-4">
         <div>
           <div className="text-lg font-semibold leading-none">
@@ -246,384 +262,434 @@ export function DemoDataPanel() {
 
       <Separator />
 
-      {/* Scrollbarer Content-Bereich */}
+      {/* Inhalt mit Scroll */}
       <CardContent className="flex-1 overflow-hidden p-0">
         <ScrollArea className="h-full p-6 text-sm space-y-10">
 
           {/* Abschnitt: Allgemein */}
-          <section className="space-y-4">
-            <SectionHeader title="Allgemein" />
-
+          <SectionBlock title="Allgemein" first>
             <TwoColGrid>
               <FieldRow
                 label="Objektbezeichnung"
                 editing={isEditing}
                 value={formData.objektBezeichnung}
-                onChange={val => handleChange("objektBezeichnung", val)}
+                onChange={(val) => handleChange("objektBezeichnung", val)}
               />
               <FieldRow
                 label="Objekttyp"
                 editing={isEditing}
                 value={formData.objektTyp}
-                onChange={val => handleChange("objektTyp", val)}
+                onChange={(val) => handleChange("objektTyp", val)}
               />
               <FieldRow
                 label="Adresse"
                 editing={isEditing}
                 value={formData.adresseStrasse}
-                onChange={val => handleChange("adresseStrasse", val)}
+                onChange={(val) => handleChange("adresseStrasse", val)}
               />
               <FieldRow
                 label="PLZ / Ort"
                 editing={isEditing}
                 value={formData.adressePlzOrt}
-                onChange={val => handleChange("adressePlzOrt", val)}
+                onChange={(val) => handleChange("adressePlzOrt", val)}
               />
               <FieldRow
                 label="Baujahr"
                 editing={isEditing}
                 value={formData.baujahr}
-                onChange={val => handleChange("baujahr", val)}
+                onChange={(val) => handleChange("baujahr", val)}
               />
               <FieldRow
                 label="Letzte Sanierung"
                 editing={isEditing}
                 value={formData.letzteSanierung}
-                onChange={val => handleChange("letzteSanierung", val)}
+                onChange={(val) => handleChange("letzteSanierung", val)}
               />
               <FieldRow
                 label="Nutzungsstatus"
                 editing={isEditing}
                 value={formData.aktuellerNutzungsstatus}
-                onChange={val => handleChange("aktuellerNutzungsstatus", val)}
+                onChange={(val) =>
+                  handleChange("aktuellerNutzungsstatus", val)
+                }
               />
               <FieldRow
                 label="Leerstand seit"
                 editing={isEditing}
                 value={formData.leerstandSeit}
-                onChange={val => handleChange("leerstandSeit", val)}
+                onChange={(val) => handleChange("leerstandSeit", val)}
               />
               <FieldRow
                 label="Eigentümer / Kontakt"
                 editing={isEditing}
                 value={formData.ansprechpartnerEigentuemer}
-                onChange={val => handleChange("ansprechpartnerEigentuemer", val)}
+                onChange={(val) =>
+                  handleChange("ansprechpartnerEigentuemer", val)
+                }
               />
               <FieldRow
                 label="Energieklasse"
                 editing={isEditing}
                 value={formData.energieklasse}
-                onChange={val => handleChange("energieklasse", val)}
+                onChange={(val) => handleChange("energieklasse", val)}
               />
               <FieldRow
                 label="Energiekennwert"
                 editing={isEditing}
                 value={formData.energieKennwert}
-                onChange={val => handleChange("energieKennwert", val)}
+                onChange={(val) => handleChange("energieKennwert", val)}
               />
               <FieldRow
                 label="Bezugsfrei ab"
                 editing={isEditing}
                 value={formData.sofortBezugsfreiAb}
-                onChange={val => handleChange("sofortBezugsfreiAb", val)}
+                onChange={(val) => handleChange("sofortBezugsfreiAb", val)}
               />
               <FieldRow
                 label="Kaufpreisvorstellung"
                 editing={isEditing}
                 value={formData.kaufpreisVorstellung}
-                onChange={val => handleChange("kaufpreisVorstellung", val)}
+                onChange={(val) =>
+                  handleChange("kaufpreisVorstellung", val)
+                }
               />
               <FieldRow
                 label="Zustand (Kurzbeschreibung)"
                 editing={isEditing}
                 value={formData.kurzbeschreibungZustand}
                 textarea
-                onChange={val => handleChange("kurzbeschreibungZustand", val)}
+                onChange={(val) =>
+                  handleChange("kurzbeschreibungZustand", val)
+                }
               />
             </TwoColGrid>
-          </section>
+          </SectionBlock>
 
           {/* Abschnitt: Flächen & Räume */}
-          <section className="space-y-4">
-            <SectionHeader title="Flächen & Räume" />
-
+          <SectionBlock title="Flächen & Räume">
             <TwoColGrid>
               <FieldRow
                 label="Grundstücksfläche (m²)"
                 editing={isEditing}
                 value={formData.grundstuecksFlaecheQm}
-                onChange={val => handleChange("grundstuecksFlaecheQm", val)}
+                onChange={(val) =>
+                  handleChange("grundstuecksFlaecheQm", val)
+                }
               />
               <FieldRow
                 label="Wohnfläche (m²)"
                 editing={isEditing}
                 value={formData.wohnflaecheQm}
-                onChange={val => handleChange("wohnflaecheQm", val)}
+                onChange={(val) => handleChange("wohnflaecheQm", val)}
               />
               <FieldRow
                 label="Nutzfläche Keller (m²)"
                 editing={isEditing}
                 value={formData.nutzflaecheKellerQm}
-                onChange={val => handleChange("nutzflaecheKellerQm", val)}
+                onChange={(val) =>
+                  handleChange("nutzflaecheKellerQm", val)
+                }
               />
               <FieldRow
                 label="Zimmer gesamt"
                 editing={isEditing}
                 value={formData.anzahlZimmer}
-                onChange={val => handleChange("anzahlZimmer", val)}
+                onChange={(val) => handleChange("anzahlZimmer", val)}
               />
               <FieldRow
                 label="Badezimmer"
                 editing={isEditing}
                 value={formData.anzahlBadezimmer}
-                onChange={val => handleChange("anzahlBadezimmer", val)}
+                onChange={(val) =>
+                  handleChange("anzahlBadezimmer", val)
+                }
               />
               <FieldRow
                 label="Schlafzimmer"
                 editing={isEditing}
                 value={formData.anzahlSchlafzimmer}
-                onChange={val => handleChange("anzahlSchlafzimmer", val)}
+                onChange={(val) =>
+                  handleChange("anzahlSchlafzimmer", val)
+                }
               />
               <FieldRow
                 label="Etagen"
                 editing={isEditing}
                 value={formData.anzahlEtagen}
-                onChange={val => handleChange("anzahlEtagen", val)}
+                onChange={(val) => handleChange("anzahlEtagen", val)}
               />
               <FieldRow
                 label="Stellplätze (Anzahl)"
                 editing={isEditing}
                 value={formData.stellplaetzeAnzahl}
-                onChange={val => handleChange("stellplaetzeAnzahl", val)}
+                onChange={(val) =>
+                  handleChange("stellplaetzeAnzahl", val)
+                }
               />
               <FieldRow
                 label="Stellplatzart"
                 editing={isEditing}
                 value={formData.stellplatzArt}
-                onChange={val => handleChange("stellplatzArt", val)}
+                onChange={(val) => handleChange("stellplatzArt", val)}
               />
               <FieldRow
                 label="Balkon / Terrasse"
                 editing={isEditing}
                 value={formData.balkonTerrasse}
-                onChange={val => handleChange("balkonTerrasse", val)}
+                onChange={(val) =>
+                  handleChange("balkonTerrasse", val)
+                }
               />
               <FieldRow
                 label="Garten"
                 editing={isEditing}
                 value={formData.gartenVorhanden}
-                onChange={val => handleChange("gartenVorhanden", val)}
+                onChange={(val) => handleChange("gartenVorhanden", val)}
               />
             </TwoColGrid>
-          </section>
+          </SectionBlock>
 
           {/* Abschnitt: Technischer Zustand */}
-          <section className="space-y-4">
-            <SectionHeader title="Technischer Zustand" />
-
+          <SectionBlock title="Technischer Zustand">
             <TwoColGrid>
               <FieldRow
                 label="Dach (Zustand)"
                 editing={isEditing}
                 value={formData.dachZustand}
-                onChange={val => handleChange("dachZustand", val)}
+                onChange={(val) => handleChange("dachZustand", val)}
               />
               <FieldRow
                 label="Dach erneuert / Jahr"
                 editing={isEditing}
                 value={formData.dachErneuertJahr}
-                onChange={val => handleChange("dachErneuertJahr", val)}
+                onChange={(val) =>
+                  handleChange("dachErneuertJahr", val)
+                }
               />
               <FieldRow
                 label="Fenster (Zustand)"
                 editing={isEditing}
                 value={formData.fensterZustand}
-                onChange={val => handleChange("fensterZustand", val)}
+                onChange={(val) =>
+                  handleChange("fensterZustand", val)
+                }
               />
               <FieldRow
                 label="Fenster (Typ)"
                 editing={isEditing}
                 value={formData.fensterTyp}
-                onChange={val => handleChange("fensterTyp", val)}
+                onChange={(val) => handleChange("fensterTyp", val)}
               />
               <FieldRow
                 label="Wärmedämmung"
                 editing={isEditing}
                 value={formData.waermedaemmungVorhanden}
-                onChange={val => handleChange("waermedaemmungVorhanden", val)}
+                onChange={(val) =>
+                  handleChange("waermedaemmungVorhanden", val)
+                }
               />
               <FieldRow
                 label="Heizung (Typ)"
                 editing={isEditing}
                 value={formData.heizungTyp}
-                onChange={val => handleChange("heizungTyp", val)}
+                onChange={(val) => handleChange("heizungTyp", val)}
               />
               <FieldRow
                 label="Heizung Baujahr"
                 editing={isEditing}
                 value={formData.heizungBaujahr}
-                onChange={val => handleChange("heizungBaujahr", val)}
+                onChange={(val) => handleChange("heizungBaujahr", val)}
               />
               <FieldRow
                 label="Heizung letzte Wartung"
                 editing={isEditing}
                 value={formData.heizungLetzteWartung}
-                onChange={val => handleChange("heizungLetzteWartung", val)}
+                onChange={(val) =>
+                  handleChange("heizungLetzteWartung", val)
+                }
               />
               <FieldRow
                 label="Warmwasser"
                 editing={isEditing}
                 value={formData.warmwasserErzeugung}
-                onChange={val => handleChange("warmwasserErzeugung", val)}
+                onChange={(val) =>
+                  handleChange("warmwasserErzeugung", val)
+                }
               />
               <FieldRow
                 label="Elektrik Stand"
                 editing={isEditing}
                 value={formData.elektrikStand}
-                onChange={val => handleChange("elektrikStand", val)}
+                onChange={(val) => handleChange("elektrikStand", val)}
               />
               <FieldRow
                 label="Wasserleitungen"
                 editing={isEditing}
                 value={formData.wasserLeitungenStand}
-                onChange={val => handleChange("wasserLeitungenStand", val)}
+                onChange={(val) =>
+                  handleChange("wasserLeitungenStand", val)
+                }
               />
               <FieldRow
                 label="Abwasserleitungen"
                 editing={isEditing}
                 value={formData.abwasserLeitungenStand}
-                onChange={val => handleChange("abwasserLeitungenStand", val)}
+                onChange={(val) =>
+                  handleChange("abwasserLeitungenStand", val)
+                }
               />
               <FieldRow
                 label="Feuchtigkeit Keller"
                 editing={isEditing}
                 value={formData.feuchtigkeitKeller}
-                onChange={val => handleChange("feuchtigkeitKeller", val)}
+                onChange={(val) =>
+                  handleChange("feuchtigkeitKeller", val)
+                }
               />
               <FieldRow
                 label="Schimmel sichtbar"
                 editing={isEditing}
                 value={formData.schimmelSichtbar}
-                onChange={val => handleChange("schimmelSichtbar", val)}
+                onChange={(val) =>
+                  handleChange("schimmelSichtbar", val)
+                }
               />
               <FieldRow
                 label="Besondere Mängel"
                 editing={isEditing}
                 value={formData.besondereMaengel}
                 textarea
-                onChange={val => handleChange("besondereMaengel", val)}
+                onChange={(val) =>
+                  handleChange("besondereMaengel", val)
+                }
               />
             </TwoColGrid>
-          </section>
+          </SectionBlock>
 
           {/* Abschnitt: Dokumente & Rechtliches */}
-          <section className="space-y-4">
-            <SectionHeader title="Dokumente & Rechtliches" />
-
+          <SectionBlock title="Dokumente & Rechtliches">
             <TwoColGrid>
               <FieldRow
                 label="Energieausweis vorhanden"
                 editing={isEditing}
                 value={formData.energieausweisVorhanden}
-                onChange={val => handleChange("energieausweisVorhanden", val)}
+                onChange={(val) =>
+                  handleChange("energieausweisVorhanden", val)
+                }
               />
               <FieldRow
                 label="Energieausweis gültig bis"
                 editing={isEditing}
                 value={formData.energieausweisGueltigBis}
-                onChange={val => handleChange("energieausweisGueltigBis", val)}
+                onChange={(val) =>
+                  handleChange("energieausweisGueltigBis", val)
+                }
               />
               <FieldRow
                 label="Grundbuchauszug vorhanden"
                 editing={isEditing}
                 value={formData.grundbuchauszugVorhanden}
-                onChange={val => handleChange("grundbuchauszugVorhanden", val)}
+                onChange={(val) =>
+                  handleChange("grundbuchauszugVorhanden", val)
+                }
               />
               <FieldRow
                 label="Teilungserklärung"
                 editing={isEditing}
                 value={formData.teilungserklaerungVorhanden}
-                onChange={val => handleChange("teilungserklaerungVorhanden", val)}
+                onChange={(val) =>
+                  handleChange("teilungserklaerungVorhanden", val)
+                }
               />
               <FieldRow
                 label="WEG-Protokolle"
                 editing={isEditing}
                 value={formData.wegProtokolleVorhanden}
-                onChange={val => handleChange("wegProtokolleVorhanden", val)}
+                onChange={(val) =>
+                  handleChange("wegProtokolleVorhanden", val)
+                }
               />
               <FieldRow
                 label="Kaminkehrerprüfung"
                 editing={isEditing}
                 value={formData.kaminkehrerPruefungDatum}
-                onChange={val => handleChange("kaminkehrerPruefungDatum", val)}
+                onChange={(val) =>
+                  handleChange("kaminkehrerPruefungDatum", val)
+                }
               />
               <FieldRow
                 label="Heizungs-Wartungsvertrag"
                 editing={isEditing}
                 value={formData.heizungsWartungsvertrag}
-                onChange={val => handleChange("heizungsWartungsvertrag", val)}
+                onChange={(val) =>
+                  handleChange("heizungsWartungsvertrag", val)
+                }
               />
               <FieldRow
                 label="Baulastenauskunft"
                 editing={isEditing}
                 value={formData.baulastenauskunftVorhanden}
-                onChange={val => handleChange("baulastenauskunftVorhanden", val)}
+                onChange={(val) =>
+                  handleChange("baulastenauskunftVorhanden", val)
+                }
               />
               <FieldRow
                 label="Denkmalschutz"
                 editing={isEditing}
                 value={formData.denkmalschutz}
-                onChange={val => handleChange("denkmalschutz", val)}
+                onChange={(val) => handleChange("denkmalschutz", val)}
               />
             </TwoColGrid>
-          </section>
+          </SectionBlock>
 
-          {/* Abschnitt: Umgebung / Lage */}
-          <section className="space-y-4">
-            <SectionHeader title="Umfeld & Lage" />
-
+          {/* Abschnitt: Umfeld & Lage */}
+          <SectionBlock title="Umfeld & Lage">
             <TwoColGrid>
               <FieldRow
                 label="Lage (kurz)"
                 editing={isEditing}
                 value={formData.lageBeschreibungKurz}
                 textarea
-                onChange={val => handleChange("lageBeschreibungKurz", val)}
+                onChange={(val) =>
+                  handleChange("lageBeschreibungKurz", val)
+                }
               />
               <FieldRow
                 label="Lärmeinschätzung"
                 editing={isEditing}
                 value={formData.laermEinschaetzung}
-                onChange={val => handleChange("laermEinschaetzung", val)}
+                onChange={(val) =>
+                  handleChange("laermEinschaetzung", val)
+                }
               />
               <FieldRow
                 label="ÖPNV-Anbindung"
                 editing={isEditing}
                 value={formData.oepnvAnbindung}
                 textarea
-                onChange={val => handleChange("oepnvAnbindung", val)}
+                onChange={(val) => handleChange("oepnvAnbindung", val)}
               />
               <FieldRow
                 label="Schulen / Kitas"
                 editing={isEditing}
                 value={formData.schulenKitasInNaehe}
                 textarea
-                onChange={val => handleChange("schulenKitasInNaehe", val)}
+                onChange={(val) =>
+                  handleChange("schulenKitasInNaehe", val)
+                }
               />
               <FieldRow
                 label="Einkauf fußläufig"
                 editing={isEditing}
                 value={formData.einkaufZuFuss}
                 textarea
-                onChange={val => handleChange("einkaufZuFuss", val)}
+                onChange={(val) => handleChange("einkaufZuFuss", val)}
               />
             </TwoColGrid>
-          </section>
+          </SectionBlock>
 
           {/* Abschnitt: Ausstattung (Mehrfachauswahl) */}
-          <section className="space-y-4">
-            <SectionHeader title="Ausstattung (Mehrfachauswahl)" />
-
+          <SectionBlock title="Ausstattung (Mehrfachauswahl)">
             <MultiCheckGroup
               label="Ausstattung-Highlights"
               options={AUSSTATTUNG_OPTIONS}
@@ -653,19 +719,44 @@ export function DemoDataPanel() {
                 toggleArrayValue("rechtlicheBesonderheiten", option)
               }
             />
-          </section>
-
+          </SectionBlock>
         </ScrollArea>
       </CardContent>
     </Card>
   )
 }
 
-/* Hilfs-Komponenten für Struktur */
+// ------------------------
+// Bausteine / kleine Hilfen
+// ------------------------
+
+function SectionBlock({
+  title,
+  children,
+  first = false,
+}: {
+  title: string
+  children: React.ReactNode
+  first?: boolean
+}) {
+  return (
+    <section
+      className={[
+        "space-y-4",
+        first
+          ? "pt-2"
+          : "border-t border-gray-200 dark:border-gray-800 pt-8",
+      ].join(" ")}
+    >
+      <SectionHeader title={title} />
+      {children}
+    </section>
+  )
+}
 
 function SectionHeader({ title }: { title: string }) {
   return (
-    <div className="text-xs font-semibold uppercase text-muted-foreground tracking-wide">
+    <div className="text-base font-semibold text-foreground leading-tight">
       {title}
     </div>
   )
@@ -736,7 +827,6 @@ function MultiCheckGroup(props: {
         {label}
       </div>
 
-      {/* Anzeige oder Bearbeitungsmodus */}
       {!editing ? (
         <div className="text-sm leading-relaxed whitespace-pre-wrap">
           {values.length > 0 ? values.join(", ") : "—"}
