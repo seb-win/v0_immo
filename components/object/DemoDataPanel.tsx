@@ -8,11 +8,10 @@ import { Textarea } from "@/components/ui/textarea"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Button } from "@/components/ui/button"
 import { ScrollArea } from "@/components/ui/scroll-area"
-import { Label } from "@/components/ui/label"
 
-// ------------------------
+// ------------------------------------
 // Datentyp für das Formular
-// ------------------------
+// ------------------------------------
 
 type FormData = {
   // Allgemein
@@ -22,7 +21,7 @@ type FormData = {
   adressePlzOrt: string
   baujahr: string
   letzteSanierung: string
-  aktuellerNutzungsstatus: string // "Eigennutzung", "Vermietet", etc.
+  aktuellerNutzungsstatus: string
   leerstandSeit: string
   ansprechpartnerEigentuemer: string
   energieklasse: string
@@ -40,54 +39,54 @@ type FormData = {
   anzahlSchlafzimmer: string
   anzahlEtagen: string
   stellplaetzeAnzahl: string
-  stellplatzArt: string // Garage / Carport / Außenstellplatz
-  balkonTerrasse: string // "Balkon", "Terrasse", "Balkon+Terrasse", "Keine"
-  gartenVorhanden: string // "ja/nein"
+  stellplatzArt: string
+  balkonTerrasse: string
+  gartenVorhanden: string
 
-  // Technischer Zustand / Gebäudehülle
+  // Technischer Zustand
   dachZustand: string
   dachErneuertJahr: string
   fensterZustand: string
-  fensterTyp: string // "2-fach", "3-fach", ...
-  waermedaemmungVorhanden: string // "ja/nein/teilweise"
-  heizungTyp: string // "Gas", "Öl", "Fernwärme", "Wärmepumpe", etc.
+  fensterTyp: string
+  waermedaemmungVorhanden: string
+  heizungTyp: string
   heizungBaujahr: string
   heizungLetzteWartung: string
-  warmwasserErzeugung: string // "über Heizung", "Boiler", etc.
-  elektrikStand: string // "Alt", "Teilmodernisiert", "Aktuell"
+  warmwasserErzeugung: string
+  elektrikStand: string
   wasserLeitungenStand: string
   abwasserLeitungenStand: string
-  feuchtigkeitKeller: string // "Keine", "Leichte Feuchte", ...
-  schimmelSichtbar: string // "ja/nein"
-  besondereMaengel: string // Freitext
+  feuchtigkeitKeller: string
+  schimmelSichtbar: string
+  besondereMaengel: string
 
-  // Dokumente / Rechtliches
-  energieausweisVorhanden: string // "ja/nein"
+  // Dokumente & Rechtliches
+  energieausweisVorhanden: string
   energieausweisGueltigBis: string
-  grundbuchauszugVorhanden: string // "ja/nein"
-  teilungserklaerungVorhanden: string // "ja/nein/nicht relevant"
-  wegProtokolleVorhanden: string // "ja/nein/nicht relevant"
+  grundbuchauszugVorhanden: string
+  teilungserklaerungVorhanden: string
+  wegProtokolleVorhanden: string
   kaminkehrerPruefungDatum: string
-  heizungsWartungsvertrag: string // "ja/nein"
-  baulastenauskunftVorhanden: string // "ja/nein"
-  denkmalschutz: string // "ja/nein/teilweise"
+  heizungsWartungsvertrag: string
+  baulastenauskunftVorhanden: string
+  denkmalschutz: string
 
-  // Umgebung / Lage
+  // Umfeld & Lage
   lageBeschreibungKurz: string
-  laermEinschaetzung: string // "ruhig", "leichter Straßenlärm", ...
-  oepnvAnbindung: string // "U-Bahn 6 Min zu Fuß", ...
+  laermEinschaetzung: string
+  oepnvAnbindung: string
   schulenKitasInNaehe: string
-  einkaufZuFuss: string // "Supermarkt & Bäcker <5 Min", ...
+  einkaufZuFuss: string
 
-  // Mehrfach-Auswahl Felder (Checkbox-Gruppen)
-  ausstattungHighlights: string[]    // z.B. "Einbauküche", "Fußbodenheizung", ...
-  modernisierungsBedarf: string[]    // z.B. "Fenster tauschen", "Bad sanieren", ...
-  rechtlicheBesonderheiten: string[] // z.B. "Erbbaurecht", ...
+  // Mehrfachauswahl
+  ausstattungHighlights: string[]
+  modernisierungsBedarf: string[]
+  rechtlicheBesonderheiten: string[]
 }
 
-// ------------------------
+// ------------------------------------
 // Initiale Demo-Daten
-// ------------------------
+// ------------------------------------
 
 const initialData: FormData = {
   objektBezeichnung: "Einfamilienhaus Musterstraße 12",
@@ -165,10 +164,7 @@ const initialData: FormData = {
   rechtlicheBesonderheiten: ["Keine bekannten Rechte Dritter"],
 }
 
-// ------------------------
-// Optionen für Checkbox-Gruppen
-// ------------------------
-
+// Checkbox-Optionen
 const AUSSTATTUNG_OPTIONS = [
   "Fußbodenheizung EG",
   "Einbauküche (2021)",
@@ -194,9 +190,9 @@ const RECHTLICH_OPTIONS = [
   "Keine bekannten Rechte Dritter",
 ]
 
-// ------------------------
-// Haupt-Panel
-// ------------------------
+// ------------------------------------
+// Hauptkomponente
+// ------------------------------------
 
 export function DemoDataPanel() {
   const [isEditing, setIsEditing] = React.useState(false)
@@ -219,13 +215,12 @@ export function DemoDataPanel() {
   }
 
   function cancelEdit() {
-    setFormData(initialData) // lokal Änderungen verwerfen
+    setFormData(initialData)
     setIsEditing(false)
   }
 
   function saveEdit() {
     console.log("Speichern (lokal):", formData)
-    // später: DB / API
     setIsEditing(false)
   }
 
@@ -264,11 +259,10 @@ export function DemoDataPanel() {
 
       {/* Inhalt mit Scroll */}
       <CardContent className="flex-1 overflow-hidden p-0">
-        <ScrollArea className="h-full p-6 text-sm space-y-10">
-
-          {/* Abschnitt: Allgemein */}
+        <ScrollArea className="h-full p-6 text-sm space-y-16">
+          {/* Allgemein */}
           <SectionBlock title="Allgemein" first>
-            <TwoColGrid>
+            <FieldList>
               <FieldRow
                 label="Objektbezeichnung"
                 editing={isEditing}
@@ -362,12 +356,12 @@ export function DemoDataPanel() {
                   handleChange("kurzbeschreibungZustand", val)
                 }
               />
-            </TwoColGrid>
+            </FieldList>
           </SectionBlock>
 
-          {/* Abschnitt: Flächen & Räume */}
+          {/* Flächen & Räume */}
           <SectionBlock title="Flächen & Räume">
-            <TwoColGrid>
+            <FieldList>
               <FieldRow
                 label="Grundstücksfläche (m²)"
                 editing={isEditing}
@@ -446,12 +440,12 @@ export function DemoDataPanel() {
                 value={formData.gartenVorhanden}
                 onChange={(val) => handleChange("gartenVorhanden", val)}
               />
-            </TwoColGrid>
+            </FieldList>
           </SectionBlock>
 
-          {/* Abschnitt: Technischer Zustand */}
+          {/* Technischer Zustand */}
           <SectionBlock title="Technischer Zustand">
-            <TwoColGrid>
+            <FieldList>
               <FieldRow
                 label="Dach (Zustand)"
                 editing={isEditing}
@@ -563,12 +557,12 @@ export function DemoDataPanel() {
                   handleChange("besondereMaengel", val)
                 }
               />
-            </TwoColGrid>
+            </FieldList>
           </SectionBlock>
 
-          {/* Abschnitt: Dokumente & Rechtliches */}
+          {/* Dokumente & Rechtliches */}
           <SectionBlock title="Dokumente & Rechtliches">
-            <TwoColGrid>
+            <FieldList>
               <FieldRow
                 label="Energieausweis vorhanden"
                 editing={isEditing}
@@ -639,12 +633,12 @@ export function DemoDataPanel() {
                 value={formData.denkmalschutz}
                 onChange={(val) => handleChange("denkmalschutz", val)}
               />
-            </TwoColGrid>
+            </FieldList>
           </SectionBlock>
 
-          {/* Abschnitt: Umfeld & Lage */}
+          {/* Umfeld & Lage */}
           <SectionBlock title="Umfeld & Lage">
-            <TwoColGrid>
+            <FieldList>
               <FieldRow
                 label="Lage (kurz)"
                 editing={isEditing}
@@ -685,10 +679,10 @@ export function DemoDataPanel() {
                 textarea
                 onChange={(val) => handleChange("einkaufZuFuss", val)}
               />
-            </TwoColGrid>
+            </FieldList>
           </SectionBlock>
 
-          {/* Abschnitt: Ausstattung (Mehrfachauswahl) */}
+          {/* Ausstattung */}
           <SectionBlock title="Ausstattung (Mehrfachauswahl)">
             <MultiCheckGroup
               label="Ausstattung-Highlights"
@@ -726,10 +720,11 @@ export function DemoDataPanel() {
   )
 }
 
-// ------------------------
-// Bausteine / kleine Hilfen
-// ------------------------
+// ------------------------------------
+// Unterkomponenten
+// ------------------------------------
 
+// Abschnitt-Wrapper: sorgt für Border, Abstand, Titel
 function SectionBlock({
   title,
   children,
@@ -742,34 +737,26 @@ function SectionBlock({
   return (
     <section
       className={[
-        "space-y-4",
         first
           ? "pt-2"
-          : "border-t border-gray-200 dark:border-gray-800 pt-8",
+          : "border-t border-gray-200 dark:border-gray-800 pt-10",
+        "space-y-6",
       ].join(" ")}
     >
-      <SectionHeader title={title} />
+      <div className="text-base font-semibold text-foreground leading-tight">
+        {title}
+      </div>
       {children}
     </section>
   )
 }
 
-function SectionHeader({ title }: { title: string }) {
-  return (
-    <div className="text-base font-semibold text-foreground leading-tight">
-      {title}
-    </div>
-  )
+// Liste von Feldern: einfach nur vertikaler Abstand zwischen Rows
+function FieldList({ children }: { children: React.ReactNode }) {
+  return <div className="space-y-4">{children}</div>
 }
 
-function TwoColGrid({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="grid grid-cols-2 gap-y-4 gap-x-6">
-      {children}
-    </div>
-  )
-}
-
+// Eine einzelne Zeile: linke Spalte fix, rechte flexibel
 function FieldRow(props: {
   label: string
   value: string
@@ -780,14 +767,14 @@ function FieldRow(props: {
   const { label, value, editing, textarea, onChange } = props
 
   return (
-    <>
-      {/* linke Spalte = Label */}
-      <div className="text-muted-foreground flex items-start pt-[6px]">
+    <div className="flex flex-row items-start gap-6 border-b border-gray-100 dark:border-gray-900 pb-4">
+      {/* linke Spalte */}
+      <div className="basis-48 shrink-0 text-muted-foreground leading-relaxed pt-[2px] text-sm">
         {label}
       </div>
 
-      {/* rechte Spalte = Wert ODER Input */}
-      <div className="flex items-start">
+      {/* rechte Spalte */}
+      <div className="flex-1 leading-relaxed text-sm">
         {editing ? (
           textarea ? (
             <Textarea
@@ -799,16 +786,16 @@ function FieldRow(props: {
             <Input
               value={value}
               onChange={(e) => onChange(e.target.value)}
-              className="h-8"
+              className="h-8 max-w-md"
             />
           )
         ) : (
-          <div className="whitespace-pre-wrap leading-relaxed">
+          <div className="whitespace-pre-wrap">
             {value || "—"}
           </div>
         )}
       </div>
-    </>
+    </div>
   )
 }
 
@@ -822,17 +809,17 @@ function MultiCheckGroup(props: {
   const { label, options, values, editing, onToggle } = props
 
   return (
-    <div className="space-y-2">
-      <div className="text-xs font-semibold uppercase text-muted-foreground tracking-wide">
+    <div className="space-y-3">
+      <div className="text-sm font-medium text-foreground leading-tight">
         {label}
       </div>
 
       {!editing ? (
-        <div className="text-sm leading-relaxed whitespace-pre-wrap">
+        <div className="text-sm leading-relaxed whitespace-pre-wrap border-b border-gray-100 dark:border-gray-900 pb-4">
           {values.length > 0 ? values.join(", ") : "—"}
         </div>
       ) : (
-        <div className="grid grid-cols-1 gap-2">
+        <div className="grid grid-cols-1 gap-2 border-b border-gray-100 dark:border-gray-900 pb-4">
           {options.map((opt) => (
             <label
               key={opt}
