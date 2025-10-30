@@ -259,7 +259,7 @@ export function DemoDataPanel() {
 
       {/* Inhalt mit Scroll */}
       <CardContent className="flex-1 overflow-hidden p-0">
-        <ScrollArea className="h-full p-6 text-sm space-y-16">
+        <ScrollArea className="h-full p-6 pb-24 text-sm space-y-16">
           {/* Allgemein */}
           <SectionBlock title="Allgemein" first>
             <FieldList>
@@ -712,6 +712,7 @@ export function DemoDataPanel() {
               onToggle={(option) =>
                 toggleArrayValue("rechtlicheBesonderheiten", option)
               }
+              isLast
             />
           </SectionBlock>
         </ScrollArea>
@@ -724,7 +725,6 @@ export function DemoDataPanel() {
 // Unterkomponenten
 // ------------------------------------
 
-// Abschnitt-Wrapper: sorgt für Border, Abstand, Titel
 function SectionBlock({
   title,
   children,
@@ -751,12 +751,12 @@ function SectionBlock({
   )
 }
 
-// Liste von Feldern: einfach nur vertikaler Abstand zwischen Rows
+// Liste von Feldern
 function FieldList({ children }: { children: React.ReactNode }) {
-  return <div className="space-y-4">{children}</div>
+  return <div className="space-y-0">{children}</div>
 }
 
-// Eine einzelne Zeile: linke Spalte fix, rechte flexibel
+// Eine einzelne Zeile
 function FieldRow(props: {
   label: string
   value: string
@@ -767,14 +767,14 @@ function FieldRow(props: {
   const { label, value, editing, textarea, onChange } = props
 
   return (
-    <div className="flex flex-row items-start gap-6 border-b border-gray-100 dark:border-gray-900 pb-4">
+    <div className="flex flex-row items-start gap-6 border-b border-gray-100 dark:border-gray-900 py-2">
       {/* linke Spalte */}
-      <div className="basis-48 shrink-0 text-muted-foreground leading-relaxed pt-[2px] text-sm">
+      <div className="basis-48 shrink-0 text-muted-foreground leading-snug text-sm">
         {label}
       </div>
 
       {/* rechte Spalte */}
-      <div className="flex-1 leading-relaxed text-sm">
+      <div className="flex-1 leading-snug text-sm">
         {editing ? (
           textarea ? (
             <Textarea
@@ -790,9 +790,7 @@ function FieldRow(props: {
             />
           )
         ) : (
-          <div className="whitespace-pre-wrap">
-            {value || "—"}
-          </div>
+          <div className="whitespace-pre-wrap">{value || "—"}</div>
         )}
       </div>
     </div>
@@ -805,31 +803,39 @@ function MultiCheckGroup(props: {
   values: string[]
   editing: boolean
   onToggle: (option: string) => void
+  isLast?: boolean
 }) {
-  const { label, options, values, editing, onToggle } = props
+  const { label, options, values, editing, onToggle, isLast } = props
 
   return (
-    <div className="space-y-3">
+    <div
+      className={[
+        "space-y-2",
+        isLast
+          ? "border-b-0 pb-2"
+          : "border-b border-gray-100 dark:border-gray-900 pb-4",
+      ].join(" ")}
+    >
       <div className="text-sm font-medium text-foreground leading-tight">
         {label}
       </div>
 
       {!editing ? (
-        <div className="text-sm leading-relaxed whitespace-pre-wrap border-b border-gray-100 dark:border-gray-900 pb-4">
+        <div className="text-sm leading-snug whitespace-pre-wrap">
           {values.length > 0 ? values.join(", ") : "—"}
         </div>
       ) : (
-        <div className="grid grid-cols-1 gap-2 border-b border-gray-100 dark:border-gray-900 pb-4">
+        <div className="grid grid-cols-1 gap-2">
           {options.map((opt) => (
             <label
               key={opt}
-              className="flex items-start gap-2 text-sm leading-tight"
+              className="flex items-start gap-2 text-sm leading-snug"
             >
               <Checkbox
                 checked={values.includes(opt)}
                 onCheckedChange={() => onToggle(opt)}
               />
-              <span className="leading-tight">{opt}</span>
+              <span className="leading-snug">{opt}</span>
             </label>
           ))}
         </div>
