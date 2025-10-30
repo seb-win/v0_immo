@@ -19,6 +19,7 @@ export default function ObjektLayout({
     { href: `${base}/objektaufnahme`, label: 'Objektaufnahme', match: (p: string) => p.startsWith(`${base}/objektaufnahme`) },
     { href: `${base}/dokumente`, label: 'Dokumente', match: (p: string) => p.startsWith(`${base}/dokumente`) },
     { href: `${base}/bilder`, label: 'Bilder', match: (p: string) => p.startsWith(`${base}/bilder`) },
+    { href: `${base}/demodaten`, label: 'Demodaten', match: (p: string) => p.startsWith(`${base}/demodaten`) },
   ];
 
   return (
