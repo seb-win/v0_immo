@@ -98,6 +98,8 @@ export default function DocumentsTab({ propertyId }: Props) {
     }
   };
 
+  console.log('isAgent (computed) =>', isAgent);
+
   return (
     <div
       className={
