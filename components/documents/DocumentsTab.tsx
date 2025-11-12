@@ -36,7 +36,6 @@ export default function DocumentsTab({ propertyId }: Props) {
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
 
-  // NEU: Add-Modal wieder aktiviert
   const [showAdd, setShowAdd] = useState(false);
 
   useEffect(() => {
@@ -54,13 +53,21 @@ export default function DocumentsTab({ propertyId }: Props) {
     return () => { alive = false };
   }, [propertyId, repo]);
 
+  // ROBUSTER Rollen-Check: 'agent' vs 'AGENT' vs is_agent
   useEffect(() => {
     let alive = true;
     (async () => {
-      const u = await supabase.auth.getUser();
-      const role = await repo.getProfileRole(u.data.user?.id ?? '');
+      const { data } = await supabase.auth.getUser();
+      const uid = data.user?.id;
+      if (!uid) { if (!alive) return; setIsAgent(false); return; }
+      const r = await repo.getProfileRole(uid);
+      const roleRaw = (r.ok ? (r.data as any)?.role : null) as string | null;
+      const isAgentFlag = (r.ok ? (r.data as any)?.is_agent : false) as boolean;
+      const agent =
+        (typeof roleRaw === 'string' && roleRaw.toLowerCase() === 'agent') ||
+        isAgentFlag === true;
       if (!alive) return;
-      setIsAgent(role.ok ? role.data?.role === 'agent' : false);
+      setIsAgent(agent);
     })();
     return () => { alive = false };
   }, [repo, supabase]);
@@ -82,17 +89,12 @@ export default function DocumentsTab({ propertyId }: Props) {
   if (loading) return <div className="p-4">Lade Dokumente…</div>;
   if (err) return <div className="p-4 text-red-600">{err}</div>;
 
-  // Nach dem Erstellen: Liste refreshen und ggf. neues Dok auswählen
-  const refreshDocsAndSelect = async (createdId?: string | null) => {
+  const refreshDocs = async () => {
     const r = await repo.listPropertyDocuments(propertyId);
     if (r.ok) {
       const items = r.data.items ?? [];
       setDocs(items);
-      if (createdId) {
-        setSelectedDocId(createdId);
-      } else if (!selectedDocId && items[0]) {
-        setSelectedDocId(items[0].id);
-      }
+      if (!selectedDocId && items[0]) setSelectedDocId(items[0].id);
     }
   };
 
@@ -111,12 +113,11 @@ export default function DocumentsTab({ propertyId }: Props) {
         onSelect={setSelectedDocId}
         collapsed={collapsed}
         onToggleCollapsed={() => setCollapsed(v => !v)}
-        // WICHTIG: öffnet wieder das Add-Modal
         onAddClick={() => setShowAdd(true)}
         isAgent={isAgent}
       />
 
-      {/* Rechte Spalte (unverändert vom Verhalten) */}
+      {/* Rechte Spalte (bestehendes Verhalten) */}
       <div className="space-y-4">
         {selectedDoc && (
           <>
@@ -203,15 +204,13 @@ export default function DocumentsTab({ propertyId }: Props) {
         )}
       </div>
 
-      {/* Add-Modal (wieder aktiv) */}
+      {/* Add-Modal (entspricht deiner Signatur: onCreated: () => void) */}
       {showAdd && (
         <DocumentAddModal
           propertyId={propertyId}
           onClose={() => setShowAdd(false)}
-          onCreated={async (created) => {
-            // Viele Implementationen liefern { id: string } oder direkt die id
-            const createdId = typeof created === 'string' ? created : created?.id;
-            await refreshDocsAndSelect(createdId ?? undefined);
+          onCreated={async () => {
+            await refreshDocs();
             setShowAdd(false);
           }}
         />
@@ -220,7 +219,7 @@ export default function DocumentsTab({ propertyId }: Props) {
   );
 }
 
-// (unverändert, Utility)
+// Utility (unverändert)
 export function StatusBadge({ status }: { status: DocumentStatus }) {
   const map: Record<DocumentStatus, { text: string; className: string }> = {
     uploaded: { text: 'Hochgeladen', className: 'bg-green-100 text-green-700' },
