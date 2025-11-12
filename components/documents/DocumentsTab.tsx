@@ -18,6 +18,9 @@ import ReminderCard from './ReminderCard';
 import DocumentAddModal from './DocumentAddModal';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
+// NEU: Hook importieren
+import useAgent from '@/hooks/use-agent';
+
 interface Props { propertyId: string }
 
 export default function DocumentsTab({ propertyId }: Props) {
@@ -31,12 +34,14 @@ export default function DocumentsTab({ propertyId }: Props) {
   const [selectedFile, setSelectedFile] = useState<DocumentFile | null>(null);
 
   const [collapsed, setCollapsed] = useState(false);
-  const [isAgent, setIsAgent] = useState<boolean>(false);
   const [activeTab, setActiveTab] = useState<'document' | 'notes'>('document');
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
 
   const [showAdd, setShowAdd] = useState(false);
+
+  // ⬇️ NEU: zentrale, robuste Rollenermittlung
+  const { isAgent, loading: roleLoading, error: roleError } = useAgent();
 
   useEffect(() => {
     let alive = true;
@@ -52,49 +57,6 @@ export default function DocumentsTab({ propertyId }: Props) {
     })();
     return () => { alive = false };
   }, [propertyId, repo]);
-
-  // ROBUSTER Rollen-Check: 'agent' vs 'AGENT' vs is_agent
-  useEffect(() => {
-    let alive = true;
-
-    (async () => {
-      try {
-        const supabase = supabaseBrowser();
-        const { data: u } = await supabase.auth.getUser();
-        const uid = u.user?.id;
-        if (!uid) { if (!alive) return; setIsAgent(false); return; }
-
-        // Lies genau dieses Profilfeld
-        const { data: profile, error } = await supabase
-          .from('profiles')
-          .select('role')
-          .eq('id', uid)
-          .single();
-
-        if (error) {
-          console.warn('profiles fetch error', error);
-          if (!alive) return;
-          setIsAgent(false);
-          return;
-        }
-
-        const role = (profile?.role ?? '').toString().toLowerCase();
-        const agent = role === 'agent';
-
-        if (!alive) return;
-        setIsAgent(agent);
-
-        // Debug, einmal ansehen
-        console.log('profiles.role =', profile?.role, '→ isAgent =', agent);
-      } catch (e) {
-        console.error('role check failed', e);
-        if (!alive) return;
-        setIsAgent(false);
-      }
-    })();
-
-    return () => { alive = false; };
-  }, []);
 
   useEffect(() => {
     let alive = true;
@@ -113,17 +75,6 @@ export default function DocumentsTab({ propertyId }: Props) {
   if (loading) return <div className="p-4">Lade Dokumente…</div>;
   if (err) return <div className="p-4 text-red-600">{err}</div>;
 
-  const refreshDocs = async () => {
-    const r = await repo.listPropertyDocuments(propertyId);
-    if (r.ok) {
-      const items = r.data.items ?? [];
-      setDocs(items);
-      if (!selectedDocId && items[0]) setSelectedDocId(items[0].id);
-    }
-  };
-
-  console.log('isAgent (computed) =>', isAgent);
-
   return (
     <div
       className={
@@ -140,16 +91,18 @@ export default function DocumentsTab({ propertyId }: Props) {
         collapsed={collapsed}
         onToggleCollapsed={() => setCollapsed(v => !v)}
         onAddClick={() => setShowAdd(true)}
-        isAgent={isAgent}
+        // ⬇️ Button unten nur für Makler — abhängig von Hook
+        isAgent={isAgent && !roleLoading}
       />
 
-      {/* Rechte Spalte (bestehendes Verhalten) */}
+      {/* Rechte Spalte */}
       <div className="space-y-4">
         {selectedDoc && (
           <>
             <div className="flex items-center justify-between">
               <h2 className="text-xl font-semibold">{selectedDoc.type?.label ?? 'Dokument'}</h2>
-              {isAgent && (
+              {/* Agent-spezifisches Widget; falls Rolle noch lädt, blende es einfach aus */}
+              {isAgent && !roleLoading && (
                 <ReminderCard
                   propertyDocumentId={selectedDoc.id}
                   dueDate={selectedDoc.due_date ?? null}
@@ -157,6 +110,13 @@ export default function DocumentsTab({ propertyId }: Props) {
                 />
               )}
             </div>
+
+            {/* Optional Rolle-Error – nur Hinweise, keine Blockade */}
+            {roleError && (
+              <div className="text-xs text-amber-600">
+                Hinweis: Rolle konnte nicht sicher ermittelt werden – Standardanzeige aktiv.
+              </div>
+            )}
 
             {!collapsed ? (
               <Tabs value={activeTab} onValueChange={v => setActiveTab(v as any)} className="w-full">
@@ -181,7 +141,7 @@ export default function DocumentsTab({ propertyId }: Props) {
                           const r = await repo.listFiles(selectedDocId);
                           if (r.ok) setFiles(r.data ?? []);
                         }}
-                        isAgent={isAgent}
+                        isAgent={isAgent && !roleLoading}
                       />
                     </div>
                     <div className="col-span-12 lg:col-span-6">
@@ -218,7 +178,7 @@ export default function DocumentsTab({ propertyId }: Props) {
                       const r = await repo.listFiles(selectedDocId);
                       if (r.ok) setFiles(r.data ?? []);
                     }}
-                    isAgent={isAgent}
+                    isAgent={isAgent && !roleLoading}
                   />
                 </div>
                 <div>
@@ -230,13 +190,18 @@ export default function DocumentsTab({ propertyId }: Props) {
         )}
       </div>
 
-      {/* Add-Modal (entspricht deiner Signatur: onCreated: () => void) */}
+      {/* Add-Modal */}
       {showAdd && (
         <DocumentAddModal
           propertyId={propertyId}
           onClose={() => setShowAdd(false)}
           onCreated={async () => {
-            await refreshDocs();
+            const r = await repo.listPropertyDocuments(propertyId);
+            if (r.ok) {
+              const items = r.data.items ?? [];
+              setDocs(items);
+              if (!selectedDocId && items[0]) setSelectedDocId(items[0].id);
+            }
             setShowAdd(false);
           }}
         />
