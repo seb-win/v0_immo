@@ -17,81 +17,12 @@ import ReminderCard from './ReminderCard';
 import DocumentAddModal from './DocumentAddModal';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
-
 import useAgent from '@/hooks/use-agent';
 
-/* --------- OPTIONAL: Supabase-Storage Fallback (wenn Repo kein Upload hat) --------- */
-const STORAGE_BUCKET = 'documents'; // <- ggf. anpassen oder leer lassen, wenn ihr kein Storage nutzt
-
-async function storageUploadFallback(docId: string, file: File) {
-  const sb = supabaseBrowser();
-  const path = `${docId}/${Date.now()}_${file.name}`;
-  const { error } = await sb.storage.from(STORAGE_BUCKET).upload(path, file, {
-    cacheControl: '3600',
-    upsert: false,
-  });
-  if (error) throw error;
-  // ⚠️ Hier müsste man ggf. noch einen DB-Eintrag in einer "document_files"-Tabelle anlegen,
-  // falls euer Repo das normalerweise übernimmt. Ohne Repo-Kenntnis lassen wir es bei Storage-Upload.
-}
-
-/* ---------- Safe helpers: passen sich an verschiedene Repo-Namen an ---------- */
-
-async function safeUploadFile(repo: any, propertyDocumentId: string, file: File) {
-  const tries = [
-    'uploadFile',
-    'uploadDocumentFile',
-    'addFile',
-    'createFile',
-    'addDocumentFile',
-  ] as const;
-
-  for (const m of tries) {
-    if (typeof repo?.[m] === 'function') {
-      const res = await repo[m](propertyDocumentId, file);
-      if (res?.ok !== false) return res;
-    }
-  }
-
-  // Wenn kein Repo-Upload existiert: optionaler Storage-Fallback
-  if (STORAGE_BUCKET) {
-    await storageUploadFallback(propertyDocumentId, file);
-    return { ok: true, via: 'storage' } as any;
-  }
-
-  throw new Error('Keine passende Upload-Methode im Repo gefunden.');
-}
-
-async function safeListFiles(repo: any, propertyDocumentId: string): Promise<DocumentFile[]> {
-  const tries = ['listFiles', 'getFiles', 'files'] as const;
-  for (const m of tries) {
-    if (typeof repo?.[m] === 'function') {
-      const res = await repo[m](propertyDocumentId);
-      if (res?.ok) return (res.data ?? []) as DocumentFile[];
-      if (Array.isArray(res)) return res as any;
-    }
-  }
-  // Kein Standardweg – wir geben eine leere Liste zurück (UI bleibt konsistent)
-  return [];
-}
-
-async function safeDeleteFile(repo: any, fileIdOrObj: any) {
-  const id = typeof fileIdOrObj === 'string' ? fileIdOrObj : fileIdOrObj?.id;
-  const tries = [
-    'deleteFile',
-    'removeFile',
-    'deleteDocumentFile',
-  ] as const;
-  for (const m of tries) {
-    if (typeof repo?.[m] === 'function') {
-      const res = await repo[m](id);
-      if (res?.ok !== false) return res;
-    }
-  }
-  throw new Error('Keine passende File-Delete-Methode im Repo gefunden.');
-}
-
-/* --------------------------------------------------------------------------- */
+/* -------------------------------------------------------
+   Supabase Storage: Bucket-Name HIER einstellen!
+   ------------------------------------------------------- */
+const DOCUMENTS_BUCKET = 'documents'; // ← <- ANPASSEN, falls euer Bucket anders heißt
 
 interface Props { propertyId: string }
 
@@ -165,12 +96,12 @@ export default function DocumentsTab({ propertyId }: Props) {
     (async () => {
       if (!selectedDocId) { setFiles([]); setNotes([]); setSelectedFile(null); return; }
       const [fr, nr] = await Promise.all([
-        safeListFiles(repo as any, selectedDocId),
-        repo.listNotes(selectedDocId).then(r => (r.ok ? (r.data ?? []) : [])),
+        repo.listFiles(selectedDocId),
+        repo.listNotes(selectedDocId),
       ]);
       if (!alive) return;
-      setFiles(fr ?? []);
-      setNotes(nr ?? []);
+      if (fr.ok) setFiles(fr.data ?? []);
+      if (nr.ok) setNotes(nr.data ?? []);
     })();
     return () => { alive = false };
   }, [repo, selectedDocId]);
@@ -180,12 +111,62 @@ export default function DocumentsTab({ propertyId }: Props) {
   if (loading) return <div className="p-4">Lade Dokumente…</div>;
   if (err) return <div className="p-4 text-red-600">{err}</div>;
 
+  // Fürs Modal: typeId -> { docId, uploaded }
   const existingByType: Record<string, { docId: string; uploaded: boolean }> = {};
   for (const d of docs) {
     const typeId = (d as any)?.type?.id as string | undefined;
     if (!typeId) continue;
-    const uploaded = (d.status as DocumentStatus) === 'uploaded';
+    const uploaded = (d.status as DocumentStatus) === 'uploaded' || (d as any).file_count > 0;
     existingByType[typeId] = { docId: d.id, uploaded };
+  }
+
+  // Upload-Flow (zweistufig)
+  async function handleUpload(file: File) {
+    if (!selectedDoc) return;
+
+    const user = await supabase.auth.getUser();
+    const uploadedBy = user.data.user?.id as string | undefined;
+
+    // 1) Pfad bauen (relativ zum Bucket)
+    const storagePath = repo.buildStoragePath({
+      bucket: DOCUMENTS_BUCKET,               // Bucket wird NICHT in storage_path geschrieben, nur für Upload
+      propertyId,
+      documentTypeKey: selectedDoc.type?.key ?? 'unknown',
+      propertyDocumentId: selectedDoc.id,
+      originalFilename: file.name,
+    });
+
+    // 2) Datei in Storage hochladen
+    const { error: storageErr } = await supabase
+      .storage
+      .from(DOCUMENTS_BUCKET)
+      .upload(storagePath, file, { upsert: false });
+
+    if (storageErr) {
+      console.error('Storage upload failed:', storageErr);
+      return;
+    }
+
+    // 3) File in DB registrieren (damit es in listFiles erscheint)
+    const meta = {
+      filename: file.name,
+      ext: file.name.includes('.') ? file.name.split('.').pop() : null,
+      mime_type: file.type || null,
+      size: file.size,
+      is_shared_with_customer: true,
+    };
+
+    const reg = await repo.registerUploadedFile(selectedDoc.id, meta as any, uploadedBy as any, storagePath);
+    if (!reg.ok) {
+      console.error('registerUploadedFile failed:', reg.error);
+      return;
+    }
+
+    // 4) Files neu laden + Status setzen
+    const fr = await repo.listFiles(selectedDoc.id);
+    const newFiles = fr.ok ? (fr.data ?? []) : [];
+    setFiles(newFiles);
+    updateDocStatus(selectedDoc.id, newFiles.length > 0);
   }
 
   return (
@@ -235,13 +216,10 @@ export default function DocumentsTab({ propertyId }: Props) {
                         type="file"
                         className="hidden"
                         onChange={async (e) => {
-                          if (!e.target.files?.[0] || !selectedDocId) return;
+                          if (!e.target.files?.[0]) return;
                           const file = e.target.files[0];
                           try {
-                            await safeUploadFile(repo as any, selectedDocId, file);
-                            const newFiles = await safeListFiles(repo as any, selectedDocId);
-                            setFiles(newFiles);
-                            updateDocStatus(selectedDocId, newFiles.length > 0);
+                            await handleUpload(file);
                           } finally {
                             e.currentTarget.value = '';
                           }
@@ -260,7 +238,7 @@ export default function DocumentsTab({ propertyId }: Props) {
                     files.map((f: any) => (
                       <div key={f.id} className="p-3 flex items-center justify-between gap-3">
                         <div className="min-w-0">
-                          <div className="font-medium truncate">{f.name ?? f.filename ?? 'Datei'}</div>
+                          <div className="font-medium truncate">{f.filename ?? f.name ?? 'Datei'}</div>
                           <div className="text-xs text-muted-foreground">
                             {(f.size ? Math.round(f.size / 1024) : '?')} KB
                           </div>
@@ -279,8 +257,13 @@ export default function DocumentsTab({ propertyId }: Props) {
                               size="sm"
                               onClick={async () => {
                                 if (!selectedDocId) return;
-                                await safeDeleteFile(repo as any, f.id ?? f);
-                                const newFiles = await safeListFiles(repo as any, selectedDocId);
+                                const del = await repo.deleteFile(f.id);
+                                if (!del.ok) {
+                                  console.error('deleteFile failed:', del.error);
+                                  return;
+                                }
+                                const fr = await repo.listFiles(selectedDocId);
+                                const newFiles = fr.ok ? (fr.data ?? []) : [];
                                 setFiles(newFiles);
                                 updateDocStatus(selectedDocId, newFiles.length > 0);
                               }}
@@ -317,13 +300,13 @@ export default function DocumentsTab({ propertyId }: Props) {
           existingByType={existingByType}
           onClose={() => setShowAdd(false)}
           onCompleted={async ({ createdIds, removedIds }) => {
-            // 1) sofort lokal entfernen
+            // sofort lokal entfernen
             if (removedIds?.length) {
               const removed = new Set(removedIds);
               setDocs(prev => prev.filter(d => !removed.has(d.id)));
               setSelectedDocId(prevSel => (prevSel && removed.has(prevSel) ? null : prevSel));
             }
-            // 2) Server-Refresh
+            // serverseitig nachziehen
             await refreshDocs(createdIds?.[0] ?? null);
             setShowAdd(false);
           }}

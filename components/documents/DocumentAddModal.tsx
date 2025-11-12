@@ -15,38 +15,6 @@ type CompletedPayload = {
   removedIds: string[];
 };
 
-/** Repo-Delete -> mehrere Namen probieren; wenn alle scheitern: Supabase-DELETE als Fallback */
-async function safeDeleteDoc(repo: any, docId: string) {
-  const tries = [
-    'deletePropertyDocument',
-    'deleteDocument',
-    'removePlaceholder',
-    'removePropertyDocument',
-    'deleteDoc',
-  ] as const;
-
-  for (const m of tries) {
-    try {
-      if (typeof repo?.[m] === 'function') {
-        const res = await repo[m](docId);
-        if (res?.ok !== false) return { ok: true, via: `repo.${m}` };
-      }
-    } catch {
-      // next
-    }
-  }
-
-  // HARTE ABSICHERUNG: direkt in DB löschen (nur Platzhalter ohne Upload)
-  try {
-    const sb = supabaseBrowser();
-    const res = await sb.from('property_documents').delete().eq('id', docId);
-    if (!res.error) return { ok: true, via: 'supabase.delete(property_documents)' };
-  } catch {
-    // ignore
-  }
-  return { ok: false, via: 'none' };
-}
-
 export default function DocumentAddModal({
   propertyId,
   onClose,
@@ -85,14 +53,12 @@ export default function DocumentAddModal({
 
     if (isExisting) {
       if (existing.uploaded) {
-        // Hochgeladen => fix & disabled
-        return;
+        return; // hochgeladen => fix
       } else {
-        // Platzhalter => toggelt Lösch-Flag
-        setUnselectedExisting((prev) => ({ ...prev, [typeId]: !prev[typeId] }));
+        setUnselectedExisting(prev => ({ ...prev, [typeId]: !prev[typeId] })); // Platzhalter toggeln
       }
     } else {
-      setSelected((prev) => ({ ...prev, [typeId]: !prev[typeId] }));
+      setSelected(prev => ({ ...prev, [typeId]: !prev[typeId] })); // neu anlegen
     }
   }
 
@@ -105,10 +71,7 @@ export default function DocumentAddModal({
       const createdBy = u.user?.id as string;
 
       // 1) Neue Typen anlegen
-      const typeIdsToCreate = types
-        .filter((t) => !existingSet.has(t.id) && selected[t.id])
-        .map((t) => t.id);
-
+      const typeIdsToCreate = types.filter(t => !existingSet.has(t.id) && selected[t.id]).map(t => t.id);
       if (typeIdsToCreate.length > 0) {
         const res = await repo.createPlaceholders({
           propertyId,
@@ -117,25 +80,22 @@ export default function DocumentAddModal({
           dueDate: dueDate || undefined,
           supplierEmail: supplierEmail || undefined,
         });
-        if (res?.ok) {
-          const payload = (res as any)?.data;
-          if (Array.isArray(payload)) {
-            for (const row of payload) if (row?.id) createdIds.push(row.id);
-          }
+        if (res?.ok && Array.isArray((res as any).data)) {
+          for (const row of (res as any).data) if (row?.id) createdIds.push(row.id);
         }
       }
 
       // 2) Platzhalter löschen (nur existing & !uploaded)
-      const typeIdsToRemove = Object.keys(unselectedExisting).filter((tid) => unselectedExisting[tid] === true);
+      const typeIdsToRemove = Object.keys(unselectedExisting).filter(tid => unselectedExisting[tid] === true);
       for (const tid of typeIdsToRemove) {
         const info = existingByType[tid];
-        if (!info) continue;
-        if (info.uploaded) continue; // Sicherheitsnetz
-        const res = await safeDeleteDoc(repo as any, info.docId);
-        if (res.ok) removedIds.push(info.docId);
+        if (!info || info.uploaded) continue;
+        // direkter DB-Delete (Repo hat keine Delete-Methode für Platzhalter)
+        const sb = supabaseBrowser();
+        const { error } = await sb.from('property_documents').delete().eq('id', info.docId);
+        if (!error) removedIds.push(info.docId);
       }
 
-      // UI sofort updaten – auch wenn einzelne Deletes serverseitig fehlschlagen sollten
       onCompleted({ createdIds, removedIds });
       onClose();
     } finally {
@@ -145,7 +105,7 @@ export default function DocumentAddModal({
 
   const list = useMemo(() => {
     if (!onlyMissing) return types;
-    return types.filter((t) => !existingSet.has(t.id));
+    return types.filter(t => !existingSet.has(t.id));
   }, [types, onlyMissing, existingSet]);
 
   return (
