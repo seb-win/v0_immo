@@ -3,12 +3,19 @@
 import { useEffect, useMemo, useState } from 'react';
 import { supabaseBrowser } from '@/lib/supabase/client';
 import { createDocumentsRepo } from '@/lib/repositories/documents-repo';
-import type { PropertyDocumentSummary, DocumentFile, DocumentNote, DocumentStatus } from '@/lib/repositories/contracts';
+import type {
+  PropertyDocumentSummary,
+  DocumentFile,
+  DocumentNote,
+  DocumentStatus,
+} from '@/lib/repositories/contracts';
+
 import DocumentListPanel from './DocumentListPanel';
 import DocumentViewer from './DocumentViewer';
 import DocumentFileList from './DocumentFileList';
 import DocumentNotes from './DocumentNotes';
 import ReminderCard from './ReminderCard';
+import DocumentAddModal from './DocumentAddModal';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
 interface Props { propertyId: string }
@@ -28,6 +35,9 @@ export default function DocumentsTab({ propertyId }: Props) {
   const [activeTab, setActiveTab] = useState<'document' | 'notes'>('document');
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
+
+  // NEU: Add-Modal wieder aktiviert
+  const [showAdd, setShowAdd] = useState(false);
 
   useEffect(() => {
     let alive = true;
@@ -72,33 +82,41 @@ export default function DocumentsTab({ propertyId }: Props) {
   if (loading) return <div className="p-4">Lade Dokumente…</div>;
   if (err) return <div className="p-4 text-red-600">{err}</div>;
 
+  // Nach dem Erstellen: Liste refreshen und ggf. neues Dok auswählen
+  const refreshDocsAndSelect = async (createdId?: string | null) => {
+    const r = await repo.listPropertyDocuments(propertyId);
+    if (r.ok) {
+      const items = r.data.items ?? [];
+      setDocs(items);
+      if (createdId) {
+        setSelectedDocId(createdId);
+      } else if (!selectedDocId && items[0]) {
+        setSelectedDocId(items[0].id);
+      }
+    }
+  };
+
   return (
     <div
       className={
-        // Wichtig: echte Breitenänderung der linken Spalte beim Einklappen
         collapsed
           ? 'grid grid-cols-1 md:grid-cols-[56px_1fr] gap-4'
           : 'grid grid-cols-1 md:grid-cols-[280px_1fr] gap-4'
       }
     >
-      {/* Linke Spalte: Dokumentenliste (kollabierbar) */}
+      {/* Linke Spalte: Liste (kollabierbar) */}
       <DocumentListPanel
         docs={docs}
         selectedId={selectedDocId}
         onSelect={setSelectedDocId}
         collapsed={collapsed}
         onToggleCollapsed={() => setCollapsed(v => !v)}
-        onAddClick={() => {
-          // Öffne bestehendes Add/Upload – falls du ein eigenes Modal hast, hier triggern
-          if (!selectedDocId) return;
-          // Minimal: Scroll zum Uploadbereich rechts – Logik ggf. später
-          const el = document.getElementById('documents-upload-anchor');
-          el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        }}
+        // WICHTIG: öffnet wieder das Add-Modal
+        onAddClick={() => setShowAdd(true)}
         isAgent={isAgent}
       />
 
-      {/* Rechte Spalte: wie gehabt; Tabs nur Beispiel – hier nichts Logisches verändert */}
+      {/* Rechte Spalte (unverändert vom Verhalten) */}
       <div className="space-y-4">
         {selectedDoc && (
           <>
@@ -158,7 +176,6 @@ export default function DocumentsTab({ propertyId }: Props) {
                 </TabsContent>
               </Tabs>
             ) : (
-              // Wenn die Liste kollabiert ist, ändert sich rechts erstmal nichts (Side-by-Side später)
               <div className="grid grid-cols-1 gap-4">
                 <div>
                   <DocumentFileList
@@ -185,16 +202,30 @@ export default function DocumentsTab({ propertyId }: Props) {
           </>
         )}
       </div>
+
+      {/* Add-Modal (wieder aktiv) */}
+      {showAdd && (
+        <DocumentAddModal
+          propertyId={propertyId}
+          onClose={() => setShowAdd(false)}
+          onCreated={async (created) => {
+            // Viele Implementationen liefern { id: string } oder direkt die id
+            const createdId = typeof created === 'string' ? created : created?.id;
+            await refreshDocsAndSelect(createdId ?? undefined);
+            setShowAdd(false);
+          }}
+        />
+      )}
     </div>
   );
 }
 
-// Hilfsbadge (unverändert benötigt evtl. an anderer Stelle)
+// (unverändert, Utility)
 export function StatusBadge({ status }: { status: DocumentStatus }) {
   const map: Record<DocumentStatus, { text: string; className: string }> = {
     uploaded: { text: 'Hochgeladen', className: 'bg-green-100 text-green-700' },
-    overdue: { text: 'Überfällig', className: 'bg-red-100 text-red-700' },
-    pending: { text: 'Ausstehend', className: 'bg-gray-100 text-gray-700' },
+    overdue:  { text: 'Überfällig',  className: 'bg-red-100 text-red-700' },
+    pending:  { text: 'Ausstehend',  className: 'bg-gray-100 text-gray-700' },
   };
   const s = map[status] ?? map.pending;
   return <span className={`px-2 py-1 rounded text-sm ${s.className}`}>{s.text}</span>;

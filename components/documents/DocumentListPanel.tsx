@@ -10,7 +10,7 @@ type Props = {
   onSelect: (id: string) => void;
   collapsed: boolean;
   onToggleCollapsed: () => void;
-  onAddClick: () => void;         // Upload/Neues Dokument
+  onAddClick: () => void;   // öffnet DocumentAddModal
   isAgent: boolean;
   newIds?: string[];
 };
@@ -26,7 +26,6 @@ export default function DocumentListPanel({
   newIds = [],
 }: Props) {
   if (collapsed) {
-    // Schlanker Handle mit Chevron – echte schmale Spalte (Breite kommt vom Grid der Elternkomponente)
     return (
       <div className="h-full border rounded-lg flex flex-col items-center">
         <button
@@ -92,16 +91,16 @@ export default function DocumentListPanel({
         )}
       </ul>
 
-      {/* Upload-Modul unten rechts – bleibt sichtbar, Liste scrollt unabhängig */}
+      {/* Button unten rechts: öffnet das Add-Modal */}
       {isAgent && (
         <div className="absolute bottom-3 right-3">
           <button
             onClick={onAddClick}
             className="inline-flex items-center gap-2 rounded-md border bg-white px-3 py-2 shadow-sm hover:bg-gray-50"
-            title="Neues Dokument anlegen / hochladen"
+            title="Neuen Dokumenttyp anlegen"
           >
             <Plus className="h-4 w-4" />
-            Neues Dokument
+            Dokument hinzufügen
           </button>
         </div>
       )}
