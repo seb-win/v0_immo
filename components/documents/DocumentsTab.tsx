@@ -58,56 +58,43 @@ export default function DocumentsTab({ propertyId }: Props) {
     let alive = true;
 
     (async () => {
-      const { data } = await supabase.auth.getUser();
-      const uid = data.user?.id;
-      if (!uid) { if (!alive) return; setIsAgent(false); return; }
+      try {
+        const supabase = supabaseBrowser();
+        const { data: u } = await supabase.auth.getUser();
+        const uid = u.user?.id;
+        if (!uid) { if (!alive) return; setIsAgent(false); return; }
 
-      const r = await repo.getProfileRole(uid);
+        // Lies genau dieses Profilfeld
+        const { data: profile, error } = await supabase
+          .from('profiles')
+          .select('role')
+          .eq('id', uid)
+          .single();
 
-      // Debug: einmal sehen, was dein Repo wirklich liefert
-      console.log('getProfileRole(uid) =>', r);
-
-      let agent = false;
-      if (r.ok && r.data) {
-        const d: any = r.data;
-
-        // 1) role (case-insensitive)
-        if (typeof d.role === 'string' && d.role.toLowerCase() === 'agent') agent = true;
-
-        // 2) boolean flags aus Profil
-        if (d.is_agent === true) agent = true;
-
-        // 3) arrays/strings
-        if (Array.isArray(d.roles) && d.roles.map((x: any) => String(x).toLowerCase()).includes('agent')) agent = true;
-        if (typeof d.role_key === 'string' && d.role_key.toLowerCase() === 'agent') agent = true;
-        if (typeof d.org_role === 'string' && d.org_role.toLowerCase() === 'agent') agent = true;
-
-        // 4) permissions
-        if (Array.isArray(d.permissions) && d.permissions.includes('documents:create')) agent = true;
-      }
-
-      // 5) optional Fallback: User-Metadaten (falls Repo nichts Brauchbares liefert)
-      if (!agent) {
-        const meta: any = data.user?.app_metadata || {};
-        const userMeta: any = data.user?.user_metadata || {};
-        const check = (val: any) =>
-          typeof val === 'string' ? val.toLowerCase() === 'agent'
-          : Array.isArray(val) ? val.map(x => String(x).toLowerCase()).includes('agent')
-          : false;
-        if (check(meta.role) || check(meta.roles) || check(userMeta.role) || check(userMeta.roles)) {
-          agent = true;
+        if (error) {
+          console.warn('profiles fetch error', error);
+          if (!alive) return;
+          setIsAgent(false);
+          return;
         }
-        // oder Permissions in Metadaten
-        if (Array.isArray(meta.permissions) && meta.permissions.includes('documents:create')) agent = true;
-      }
 
-      if (!alive) return;
-      setIsAgent(agent);
-      console.log('isAgent (normalized) =>', agent);
+        const role = (profile?.role ?? '').toString().toLowerCase();
+        const agent = role === 'agent';
+
+        if (!alive) return;
+        setIsAgent(agent);
+
+        // Debug, einmal ansehen
+        console.log('profiles.role =', profile?.role, '→ isAgent =', agent);
+      } catch (e) {
+        console.error('role check failed', e);
+        if (!alive) return;
+        setIsAgent(false);
+      }
     })();
 
     return () => { alive = false; };
-  }, [repo, supabase]);
+  }, []);
 
   useEffect(() => {
     let alive = true;
