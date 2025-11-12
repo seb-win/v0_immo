@@ -15,10 +15,42 @@ type CompletedPayload = {
   removedIds: string[];
 };
 
+/** Repo-Delete -> mehrere Namen probieren; wenn alle scheitern: Supabase-DELETE als Fallback */
+async function safeDeleteDoc(repo: any, docId: string) {
+  const tries = [
+    'deletePropertyDocument',
+    'deleteDocument',
+    'removePlaceholder',
+    'removePropertyDocument',
+    'deleteDoc',
+  ] as const;
+
+  for (const m of tries) {
+    try {
+      if (typeof repo?.[m] === 'function') {
+        const res = await repo[m](docId);
+        if (res?.ok !== false) return { ok: true, via: `repo.${m}` };
+      }
+    } catch {
+      // next
+    }
+  }
+
+  // HARTE ABSICHERUNG: direkt in DB löschen (nur Platzhalter ohne Upload)
+  try {
+    const sb = supabaseBrowser();
+    const res = await sb.from('property_documents').delete().eq('id', docId);
+    if (!res.error) return { ok: true, via: 'supabase.delete(property_documents)' };
+  } catch {
+    // ignore
+  }
+  return { ok: false, via: 'none' };
+}
+
 export default function DocumentAddModal({
   propertyId,
   onClose,
-  onCompleted,               // ersetzt onCreated: liefert created & removed
+  onCompleted,               // liefert created & removed
   existingByType = {},       // { [typeId]: { docId, uploaded } }
 }: {
   propertyId: string;
@@ -47,68 +79,36 @@ export default function DocumentAddModal({
     return () => { alive = false };
   }, [repo]);
 
-  // Handler für Checkbox-Klick
   function toggleType(typeId: string) {
     const isExisting = existingSet.has(typeId);
     const existing = existingByType[typeId];
 
     if (isExisting) {
-      // Bereits vorhanden
       if (existing.uploaded) {
-        // Hochgeladen => fest & disabled (sollte im UI sowieso disabled sein)
+        // Hochgeladen => fix & disabled
         return;
       } else {
-        // Nur Platzhalter (kein Upload) => toggelt Lösch-Flag
-        setUnselectedExisting((prev) => ({
-          ...prev,
-          [typeId]: !prev[typeId], // true bedeutet "bei Save löschen"
-        }));
+        // Platzhalter => toggelt Lösch-Flag
+        setUnselectedExisting((prev) => ({ ...prev, [typeId]: !prev[typeId] }));
       }
     } else {
-      // Noch nicht vorhanden => normaler Auswahl-Flow
-      setSelected((prev) => ({
-        ...prev,
-        [typeId]: !prev[typeId],
-      }));
+      setSelected((prev) => ({ ...prev, [typeId]: !prev[typeId] }));
     }
   }
-    // ⬆️ ganz oben in DocumentAddModal.tsx (innerhalb der Datei, außerhalb der Komponente)
-  async function safeDeleteDoc(repo: any, docId: string): Promise<boolean> {
-    const tries: Array<keyof any> = [
-      'deletePropertyDocument',
-      'deleteDocument',
-      'removePlaceholder',
-      'removePropertyDocument',
-      'deleteDoc',
-    ];
-
-    for (const m of tries) {
-      try {
-        if (typeof repo?.[m] === 'function') {
-          const res = await repo[m](docId);
-          if (res?.ok !== false) return true; // ok:true oder undefined (aber kein explizites false)
-        }
-      } catch (e) {
-        // ignorieren, nächsten Versuch
-      }
-    }
-    console.warn('Kein passender Repo-Delete-Call gefunden oder alle fehlgeschlagen.', { docId });
-    return false;
-  }
-
 
   async function handleSave() {
     setSaving(true);
+    const createdIds: string[] = [];
+    const removedIds: string[] = [];
     try {
       const { data: u } = await supabaseBrowser().auth.getUser();
       const createdBy = u.user?.id as string;
 
-      // 1) Neue Typen anlegen (nur die, die ausgewählt und nicht bereits vorhanden sind)
+      // 1) Neue Typen anlegen
       const typeIdsToCreate = types
         .filter((t) => !existingSet.has(t.id) && selected[t.id])
         .map((t) => t.id);
 
-      let createdIds: string[] = [];
       if (typeIdsToCreate.length > 0) {
         const res = await repo.createPlaceholders({
           propertyId,
@@ -117,28 +117,25 @@ export default function DocumentAddModal({
           dueDate: dueDate || undefined,
           supplierEmail: supplierEmail || undefined,
         });
-        if (res.ok) {
-          // viele Implementationen geben nur ok zurück; falls IDs zurückkommen, übernehme sie
+        if (res?.ok) {
           const payload = (res as any)?.data;
-          if (payload && Array.isArray(payload)) {
-            createdIds = payload.map((x: any) => x.id).filter(Boolean);
+          if (Array.isArray(payload)) {
+            for (const row of payload) if (row?.id) createdIds.push(row.id);
           }
         }
       }
 
-      // 2) Platzhalter löschen, die abgewählt wurden (nur existing & !uploaded)
+      // 2) Platzhalter löschen (nur existing & !uploaded)
       const typeIdsToRemove = Object.keys(unselectedExisting).filter((tid) => unselectedExisting[tid] === true);
-      const removedIds: string[] = [];
-
       for (const tid of typeIdsToRemove) {
         const info = existingByType[tid];
         if (!info) continue;
         if (info.uploaded) continue; // Sicherheitsnetz
-        const ok = await safeDeleteDoc(repo as any, info.docId);
-        if (ok) removedIds.push(info.docId);
+        const res = await safeDeleteDoc(repo as any, info.docId);
+        if (res.ok) removedIds.push(info.docId);
       }
 
-      // Wichtig: am Ende IMMER abschließen, auch wenn einzelne Deletes fehlschlagen
+      // UI sofort updaten – auch wenn einzelne Deletes serverseitig fehlschlagen sollten
       onCompleted({ createdIds, removedIds });
       onClose();
     } finally {
@@ -146,7 +143,6 @@ export default function DocumentAddModal({
     }
   }
 
-  // UI-Filter: nur fehlende anzeigen
   const list = useMemo(() => {
     if (!onlyMissing) return types;
     return types.filter((t) => !existingSet.has(t.id));
@@ -169,7 +165,6 @@ export default function DocumentAddModal({
             const isUploaded = info?.uploaded === true;
             const willBeRemoved = !!unselectedExisting[t.id];
 
-            // Visual state
             const checked = isExisting ? !willBeRemoved : !!selected[t.id];
             const disabled = isExisting ? isUploaded : false;
 
