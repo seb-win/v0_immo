@@ -1,6 +1,7 @@
 'use client';
 
 import type { PropertyDocumentSummary } from '@/lib/repositories/contracts';
+import { ChevronLeft, ChevronRight, Plus } from 'lucide-react';
 
 export default function DocumentListPanel({
   docs,
@@ -21,22 +22,39 @@ export default function DocumentListPanel({
   isAgent: boolean;
   newIds?: string[];
 }) {
-  const isNew = (id: string) => newIds.includes(id);
+  function isNew(id: string) {
+    return newIds.includes(id);
+  }
+
+  if (collapsed) {
+    return (
+      <div className="border rounded-lg h-full flex flex-col items-center pt-2">
+        <button
+          className="h-8 w-8 inline-flex items-center justify-center rounded hover:bg-gray-50"
+          onClick={onToggleCollapsed}
+          aria-label="Dokumentenliste einblenden"
+        >
+          <ChevronRight className="h-4 w-4" />
+        </button>
+      </div>
+    );
+  }
 
   return (
-    <div className="border rounded-lg overflow-hidden">
+    <div className="border rounded-lg overflow-hidden h-full flex flex-col">
       <div className="flex items-center justify-between p-3 border-b bg-gray-50">
-        <div className="font-medium">Dokumente</div>
-        <div className="flex items-center gap-2">
-          {isAgent && (
-            <button className="text-sm px-2 py-1 border rounded hover:bg-gray-100" onClick={onAddClick}>+ Hinzufügen</button>
-          )}
-          <button className="text-sm px-2 py-1 border rounded hover:bg-gray-100" onClick={onToggleCollapsed}>
-            {collapsed ? '▶' : '◀'}
-          </button>
-        </div>
+        <div className="text-base font-semibold">Dokumente</div>
+        <button
+          className="h-8 w-8 inline-flex items-center justify-center rounded hover:bg-gray-100"
+          onClick={onToggleCollapsed}
+          aria-label="Dokumentenliste ausblenden"
+          title="Leiste einklappen"
+        >
+          <ChevronLeft className="h-4 w-4" />
+        </button>
       </div>
-      <ul className="max-h-[70vh] overflow-auto">
+
+      <ul className="flex-1 overflow-auto">
         {docs.map(d => (
           <li key={d.id}>
             <button
@@ -51,7 +69,11 @@ export default function DocumentListPanel({
                   <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-100 text-blue-700">NEU</span>
                 )}
               </div>
-              <div className="text-xs text-gray-500">Status: {d.status}</div>
+              <div className="mt-1">
+                <span className="inline-block text-[11px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-700">
+                  {d.status === 'uploaded' ? 'Hochgeladen' : d.status === 'overdue' ? 'Überfällig' : 'Ausstehend'}
+                </span>
+              </div>
             </button>
           </li>
         ))}
@@ -59,6 +81,20 @@ export default function DocumentListPanel({
           <li className="p-3 text-sm text-gray-500">Noch keine Platzhalter angelegt.</li>
         )}
       </ul>
+
+      {isAgent && (
+        <div className="border-t bg-white p-3">
+          <div className="w-full flex justify-center">
+            <button
+              className="inline-flex items-center gap-2 px-3 py-2 border rounded hover:bg-gray-50"
+              onClick={onAddClick}
+            >
+              <Plus className="h-4 w-4" />
+              Hinzufügen
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

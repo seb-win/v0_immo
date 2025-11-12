@@ -16,6 +16,8 @@ import DocumentFileList from './DocumentFileList';
 import DocumentViewer from './DocumentViewer';
 import DocumentNotes from './DocumentNotes';
 import ReminderCard from './ReminderCard';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { ChevronRight } from 'lucide-react';
 
 interface Props { propertyId: string; }
 
@@ -26,16 +28,16 @@ export default function DocumentsTab({ propertyId }: Props) {
   const [docs, setDocs] = useState<PropertyDocumentSummary[]>([]);
   const [selectedDocId, setSelectedDocId] = useState<string | null>(null);
   const [files, setFiles] = useState<DocumentFile[]>([]);
-  const [selectedFile, setSelectedFile] = useState<DocumentFile | null>(null);
   const [notes, setNotes] = useState<DocumentNote[]>([]);
-  // Rolle: null = noch unbekannt, true = Agent, false = Customer
+  const [selectedFile, setSelectedFile] = useState<DocumentFile | null>(null);
   const [isAgent, setIsAgent] = useState<boolean | null>(null);
   const [collapsed, setCollapsed] = useState<boolean>(false);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   const [showAdd, setShowAdd] = useState<boolean>(false);
+  const [activeTab, setActiveTab] = useState<'document'|'notes'>('document');
 
-  // Dokument‑Platzhalter laden
+  // Dokument-Platzhalter laden
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -61,61 +63,14 @@ export default function DocumentsTab({ propertyId }: Props) {
       const { data } = await supabase.auth.getUser();
       const uid = data.user?.id;
       if (!uid) {
-      // Benutzer nicht eingeloggt → als Customer behandeln
         if (!cancelled) setIsAgent(false);
         return;
       }
-      const { data: prof, error: profErr } = await supabase
-        .from('profiles')
-        .select('role')
-        .eq('id', uid)
-        .maybeSingle();
-
-      if (!cancelled) {
-        if (profErr || !prof?.role) {
-          setIsAgent(false);
-        } else {
-          setIsAgent(prof.role === 'agent');
-        }
-      }
+      const r = await repo.getProfileRole(uid);
+      if (!cancelled) setIsAgent(r.ok ? r.data?.role === 'agent' : false);
     })();
     return () => { cancelled = true; };
-  }, [supabase]);
-
-  // Zugriff prüfen (nur für Customer)
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      if (isAgent === null) return; // Rolle noch nicht bekannt
-      // Agent → Fehler zurücksetzen
-      if (isAgent === true) {
-        if (!cancelled) setError(null);
-        return;
-      }
-      // Customer: property_roles prüfen
-      const { data: u } = await supabase.auth.getUser();
-      const uid = u.user?.id;
-      if (!uid) return;
-      const { data, error: prErr } = await supabase
-        .from('property_roles')
-        .select('property_id')
-        .eq('property_id', propertyId)
-        .eq('user_id', uid)
-        .eq('role', 'customer')
-        .maybeSingle();
-
-      if (!cancelled) {
-        if (prErr || !data) {
-          setError('Kein Zugriff auf dieses Objekt.');
-          setDocs([]);
-          setSelectedDocId(null);
-        } else {
-          setError(null);
-        }
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [isAgent, propertyId, supabase]);
+  }, [repo, supabase]);
 
   // Dateien & Notizen laden
   useEffect(() => {
@@ -138,47 +93,38 @@ export default function DocumentsTab({ propertyId }: Props) {
       else setError(notesRes.error.message ?? 'Fehler beim Laden der Notizen');
     })();
     return () => { cancelled = true; };
-  }, [selectedDocId, repo]);
-
-  // NEU‑Badge
-  const newDocIds: string[] = useMemo(() => {
-    if (!isAgent) return [];
-    return docs
-      .filter(d => {
-        if (d.status !== 'uploaded') return false;
-        const lastFile = d.last_file_at ? Date.parse(d.last_file_at) : 0;
-        const seen     = d.last_seen_at_agent ? Date.parse(d.last_seen_at_agent) : 0;
-        return lastFile > seen;
-      })
-      .map(d => d.id);
-  }, [docs, isAgent]);
-
-  // Als Agent „gesehen“ markieren
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      if (!isAgent || !selectedDocId) return;
-      if (!newDocIds.includes(selectedDocId)) return;
-      const whenISO = new Date().toISOString();
-      const res = await repo.markSeenByAgent(selectedDocId, whenISO);
-      if (cancelled) return;
-      if (res.ok) {
-        setDocs(prev => prev.map(d => d.id === selectedDocId ? { ...d, last_seen_at_agent: whenISO } : d));
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [selectedDocId, isAgent, newDocIds, repo]);
+  }, [repo, selectedDocId]);
 
   const selectedDoc = useMemo(
     () => docs.find(d => d.id === selectedDocId) ?? null,
     [docs, selectedDocId]
   );
-  const documentTypeKey = selectedDoc?.type?.key ?? 'unknown';
 
-  if (loading) return <div className="p-4">Lade Dokumente…</div>;
-  // Noch keinen Role‑Entscheid -> Guard noch nicht ausgeführt
-  if (isAgent === null) return <div className="p-4">Prüfe Zugriffsrechte…</div>;
-  if (error) return <div className="p-4 text-red-600">{error}</div>;
+  if (loading) {
+    return (
+      <div className="p-6 border rounded-lg">
+        <div className="h-4 w-48 bg-gray-200 rounded animate-pulse" />
+      </div>
+    );
+  }
+
+  if (error) {
+    return <div className="p-6 border rounded-lg text-red-600">{error}</div>;
+  }
+
+  // Collapsed Header (Handle) when sidebar is collapsed (desktop)
+  const CollapsedHandle = (
+    <div className="hidden md:flex items-center gap-2 mb-3">
+      <button
+        className="inline-flex items-center gap-1 text-sm px-2 py-1 border rounded hover:bg-gray-50"
+        onClick={() => setCollapsed(false)}
+        aria-label="Dokumentenliste einblenden"
+      >
+        <ChevronRight className="h-4 w-4" />
+        Dokumente
+      </button>
+    </div>
+  );
 
   return (
     <div className="grid grid-cols-12 gap-4">
@@ -192,7 +138,7 @@ export default function DocumentsTab({ propertyId }: Props) {
           collapsed={collapsed}
           onToggleCollapsed={() => setCollapsed(c => !c)}
           isAgent={!!isAgent}
-          newIds={newDocIds}
+          newIds={[]}
         />
       </div>
 
@@ -201,8 +147,10 @@ export default function DocumentsTab({ propertyId }: Props) {
         {!selectedDoc && (
           <div className="p-6 border rounded-lg text-gray-500">Kein Dokument ausgewählt.</div>
         )}
+
         {selectedDoc && (
           <div className="space-y-4">
+            {/* Top: Titel + optional Reminder (Agent) */}
             <div className="flex items-center justify-between">
               <h2 className="text-xl font-semibold">{selectedDoc.type?.label ?? 'Dokument'}</h2>
               {isAgent && (
@@ -214,7 +162,7 @@ export default function DocumentsTab({ propertyId }: Props) {
               )}
             </div>
 
-            {/* Customer‑Hinweis */}
+            {/* Customer-Hinweis */}
             {!isAgent && (
               <div className="rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-800">
                 Du kannst hier fehlende Dateien hochladen. Die Sichtbarkeit einzelner Dateien steuert der Makler.
@@ -226,7 +174,7 @@ export default function DocumentsTab({ propertyId }: Props) {
               <DocumentUploadButton
                 propertyId={propertyId}
                 propertyDocumentId={selectedDoc.id}
-                documentTypeKey={documentTypeKey}
+                documentTypeKey={selectedDoc.type?.key ?? null}
                 onUploaded={async () => {
                   const [r1, r2] = await Promise.all([
                     repo.listFiles(selectedDoc.id),
@@ -239,54 +187,97 @@ export default function DocumentsTab({ propertyId }: Props) {
               <StatusBadge status={selectedDoc.status} />
             </div>
 
-            <div className="grid grid-cols-12 gap-4">
-              <div className="col-span-12 lg:col-span-6">
-                <DocumentFileList
-                  files={files}
-                  onView={setSelectedFile}
-                  onDeleted={async () => {
-                    const r = await repo.listFiles(selectedDoc.id);
-                    if (r.ok) setFiles(r.data ?? []);
-                  }}
-                  onToggleShare={async () => {
-                    const r = await repo.listFiles(selectedDoc.id);
-                    if (r.ok) setFiles(r.data ?? []);
-                  }}
-                  isAgent={!!isAgent}
-                />
-              </div>
-              <div className="col-span-12 lg:col-span-6">
-                <DocumentViewer file={selectedFile} />
-              </div>
-            </div>
-
-            {/* Notizen nur für Agenten */}
-            {isAgent && (
-              <DocumentNotes
-                propertyDocumentId={selectedDoc.id}
-                notes={notes}
-                onAdded={async () => {
-                  const r = await repo.listNotes(selectedDoc.id);
-                  if (r.ok) setNotes(r.data ?? []);
-                }}
-              />
+            {/* Layout abhängig vom Sidebar-Status */}
+            {!collapsed ? (
+              // Sidebar sichtbar: Tabs „Document“ / „Reminder & Notes“
+              <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as any)} className="w-full">
+                <TabsList>
+                  <TabsTrigger value="document">Document</TabsTrigger>
+                  <TabsTrigger value="notes">Reminder &amp; Notes</TabsTrigger>
+                </TabsList>
+                <TabsContent value="document" className="mt-4">
+                  <div className="grid grid-cols-12 gap-4">
+                    <div className="col-span-12 lg:col-span-6">
+                      <DocumentFileList
+                        files={files}
+                        onView={setSelectedFile}
+                        onDeleted={async () => {
+                          const r = await repo.listFiles(selectedDoc.id);
+                          if (r.ok) setFiles(r.data ?? []);
+                        }}
+                        onToggleShare={async () => {
+                          const r = await repo.listFiles(selectedDoc.id);
+                          if (r.ok) setFiles(r.data ?? []);
+                        }}
+                        isAgent={!!isAgent}
+                      />
+                    </div>
+                    <div className="col-span-12 lg:col-span-6">
+                      <DocumentViewer file={selectedFile} />
+                    </div>
+                  </div>
+                </TabsContent>
+                <TabsContent value="notes" className="mt-4">
+                  <div className="grid grid-cols-12 gap-4">
+                    <div className="col-span-12">
+                      {isAgent ? (
+                        <DocumentNotes
+                          propertyDocumentId={selectedDoc.id}
+                          notes={notes}
+                          onAdded={async () => {
+                            const r = await repo.listNotes(selectedDoc.id);
+                            if (r.ok) setNotes(r.data ?? []);
+                          }}
+                        />
+                      ) : (
+                        <div className="p-4 border rounded text-sm text-gray-500">
+                          Notizen sind nur für Makler sichtbar.
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </TabsContent>
+              </Tabs>
+            ) : (
+              // Sidebar eingeklappt: Side-by-Side → Viewer | Reminder & Notes
+              <>
+                {CollapsedHandle}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <DocumentViewer file={selectedFile} />
+                  </div>
+                  <div className="space-y-4">
+                    {isAgent ? (
+                      <DocumentNotes
+                        propertyDocumentId={selectedDoc.id}
+                        notes={notes}
+                        onAdded={async () => {
+                          const r = await repo.listNotes(selectedDoc.id);
+                          if (r.ok) setNotes(r.data ?? []);
+                        }}
+                      />
+                    ) : (
+                      <div className="p-4 border rounded text-sm text-gray-500">
+                        Notizen sind nur für Makler sichtbar.
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </>
             )}
           </div>
         )}
       </div>
 
-      {/* Modal zum Hinzufügen von Platzhaltern (nur Agent) */}
-      {showAdd && isAgent && (
+      {/* Add-Modal */}
+      {showAdd && (
         <DocumentAddModal
           propertyId={propertyId}
           onClose={() => setShowAdd(false)}
           onCreated={async () => {
+            setShowAdd(false);
             const r = await repo.listPropertyDocuments(propertyId);
-            if (r.ok) {
-              const items = r.data.items ?? [];
-              setDocs(items);
-              if (!selectedDocId && items.length > 0) setSelectedDocId(items[0]?.id ?? null);
-            }
+            if (r.ok) setDocs(r.data.items ?? []);
           }}
         />
       )}

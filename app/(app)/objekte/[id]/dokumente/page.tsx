@@ -14,27 +14,22 @@ export default function DokumentePage({ params }: { params: { id: string } }) {
     let active = true;
     (async () => {
       // Neu: warte, bis Auth-Session steht
-      const { data: sessionData } = await supabase.auth.getSession();
-      // (Optional) wenn gar keine Session → redirect/login
-      // if (!sessionData.session) { router.replace('/login'); return; }
-
-      const { data, error } = await supabase
-        .from('properties')
-        .select('id')
-        .eq('id', propertyId)
-        .maybeSingle();
-
+      const { data } = await supabase.auth.getSession();
+      const session = data.session;
       if (!active) return;
 
-      if (error || !data) {
-        router.replace('/objekte');
-      } else {
-        setChecking(false);
+      // Wenn keine Session → zurück zum Login
+      if (!session) {
+        router.push('/auth/login');
+        return;
       }
+
+      // Hier könntest du noch weitere Access-Checks machen (z.B. Rolle/ACL)
+      setChecking(false);
     })();
 
     return () => { active = false; };
-  }, [propertyId, router, supabase]);
+  }, [router, supabase]);
 
   if (checking) {
     return (
