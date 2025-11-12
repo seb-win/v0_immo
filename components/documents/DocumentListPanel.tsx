@@ -79,6 +79,8 @@ export default function DocumentListPanel({
             {docs.map((d) => {
               const active = selectedId === d.id;
               const isNew = newIds.includes(d.id);
+              const { label, cls } = mapStatus(d.status);
+
               return (
                 <li key={d.id}>
                   <button
@@ -92,19 +94,23 @@ export default function DocumentListPanel({
                     )}
                   >
                     <span className="block text-sm md:text-base font-medium truncate">
-                      {d.type?.label ?? d['name'] ?? 'Dokument'}
+                      {d.type?.label ?? (d as any)['name'] ?? 'Dokument'}
                     </span>
 
-                    {/* Status-Badge UNTER dem Namen (nicht abgeschnitten) */}
+                    {/* Status-Badge UNTER dem Namen */}
                     <div className="mt-1">
                       <Badge
                         variant="secondary"
-                        className="inline-flex items-center text-[11px] px-2 py-0"
+                        className={cn(
+                          'inline-flex items-center text-[11px] px-2 py-0',
+                          cls // <- Farben wie im Modal
+                        )}
+                        title={label}
                       >
-                        {mapStatusToText(d.status)}
+                        {label}
                       </Badge>
 
-                      {/* Optional „NEU“-Hinweis, wenn gewünscht */}
+                      {/* Optional „NEU“-Hinweis */}
                       {isNew && (
                         <Badge
                           variant="outline"
@@ -132,7 +138,11 @@ export default function DocumentListPanel({
       <CardFooter className="px-4 pb-4 pt-2 border-t">
         <div className="w-full flex justify-center">
           {isAgent ? (
-            <Button size="sm" className="w-full max-w-[180px] bg-[#0A0A0A] hover:bg-[#1A1A1A] text-white" onClick={onAddClick}>
+            <Button
+              size="sm"
+              className="w-full max-w-[180px] bg-[#0A0A0A] hover:bg-[#1A1A1A] text-white"
+              onClick={onAddClick}
+            >
               + Hinzufügen
             </Button>
           ) : (
@@ -145,14 +155,16 @@ export default function DocumentListPanel({
   );
 }
 
-function mapStatusToText(status?: string) {
+/* ---------------- Helpers für Status-Label & Farben ---------------- */
+
+function mapStatus(status?: string) {
   switch (status) {
     case 'uploaded':
-      return 'hochgeladen';
+      return { label: 'hochgeladen', cls: 'bg-green-100 text-green-700' };
     case 'overdue':
-      return 'überfällig';
+      return { label: 'überfällig', cls: 'bg-red-100 text-red-700' };
     case 'pending':
     default:
-      return 'ausstehend';
+      return { label: 'ausstehend', cls: 'bg-amber-100 text-amber-700' };
   }
 }
