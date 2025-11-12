@@ -12,13 +12,50 @@ import type {
 
 import DocumentListPanel from './DocumentListPanel';
 import DocumentViewer from './DocumentViewer';
-import DocumentFileList from './DocumentFileList';
 import DocumentNotes from './DocumentNotes';
 import ReminderCard from './ReminderCard';
 import DocumentAddModal from './DocumentAddModal';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Button } from '@/components/ui/button';
 
 import useAgent from '@/hooks/use-agent';
+
+/* ---------- Safe helpers: passen sich an verschiedene Repo-Namen an ---------- */
+
+async function safeUploadFile(repo: any, propertyDocumentId: string, file: File) {
+  const tries = [
+    'uploadFile',
+    'uploadDocumentFile',
+    'addFile',
+    'createFile',
+    'addDocumentFile',
+  ];
+  for (const m of tries) {
+    if (typeof repo?.[m] === 'function') {
+      const res = await repo[m](propertyDocumentId, file);
+      if (res?.ok !== false) return res;
+    }
+  }
+  throw new Error('Keine passende Upload-Methode im Repo gefunden.');
+}
+
+async function safeDeleteFile(repo: any, fileIdOrObj: any) {
+  const id = typeof fileIdOrObj === 'string' ? fileIdOrObj : fileIdOrObj?.id;
+  const tries = [
+    'deleteFile',
+    'removeFile',
+    'deleteDocumentFile',
+  ];
+  for (const m of tries) {
+    if (typeof repo?.[m] === 'function') {
+      const res = await repo[m](id);
+      if (res?.ok !== false) return res;
+    }
+  }
+  throw new Error('Keine passende File-Delete-Methode im Repo gefunden.');
+}
+
+/* --------------------------------------------------------------------------- */
 
 interface Props { propertyId: string }
 
@@ -41,13 +78,15 @@ export default function DocumentsTab({ propertyId }: Props) {
 
   const { isAgent } = useAgent();
 
-  async function refreshDocs(selectId?: string | null) {
+  /* --------------------- Laden & lokale Statuspflege ---------------------- */
+
+  async function refreshDocs(preferSelectId?: string | null) {
     const r = await repo.listPropertyDocuments(propertyId);
     if (r.ok) {
       const items = r.data.items ?? [];
       setDocs(items);
-      if (selectId) {
-        setSelectedDocId(selectId);
+      if (preferSelectId) {
+        setSelectedDocId(preferSelectId);
       } else if (!selectedDocId && items[0]) {
         setSelectedDocId(items[0].id);
       } else if (selectedDocId) {
@@ -57,7 +96,7 @@ export default function DocumentsTab({ propertyId }: Props) {
     }
   }
 
-  // ⬇️ Helper: Status eines Dokuments lokal aktualisieren
+  // Status eines Dokuments in der Liste sofort anpassen
   function updateDocStatus(docId: string, uploaded: boolean) {
     setDocs(prev =>
       prev.map(d =>
@@ -66,6 +105,15 @@ export default function DocumentsTab({ propertyId }: Props) {
           : d
       )
     );
+  }
+
+  // Ein Dokument (Placeholder) lokal aus der Liste entfernen
+  function removeDocLocal(docId: string) {
+    setDocs(prev => prev.filter(d => d.id !== docId));
+    if (selectedDocId === docId) {
+      const remaining = docs.filter(d => d.id !== docId);
+      setSelectedDocId(remaining[0]?.id ?? null);
+    }
   }
 
   useEffect(() => {
@@ -100,7 +148,7 @@ export default function DocumentsTab({ propertyId }: Props) {
   if (loading) return <div className="p-4">Lade Dokumente…</div>;
   if (err) return <div className="p-4 text-red-600">{err}</div>;
 
-  // Fürs Add-Modal: Map typeId -> {docId, uploaded}
+  // Map für das Modal: typeId -> { docId, uploaded }
   const existingByType: Record<string, { docId: string; uploaded: boolean }> = {};
   for (const d of docs) {
     const typeId = (d as any)?.type?.id as string | undefined;
@@ -108,6 +156,8 @@ export default function DocumentsTab({ propertyId }: Props) {
     const uploaded = (d.status as DocumentStatus) === 'uploaded';
     existingByType[typeId] = { docId: d.id, uploaded };
   }
+
+  /* ------------------------------ UI ------------------------------------- */
 
   return (
     <div
@@ -117,6 +167,7 @@ export default function DocumentsTab({ propertyId }: Props) {
           : 'grid grid-cols-1 md:grid-cols-[280px_1fr] gap-4'
       }
     >
+      {/* Linke Spalte: Liste (kollabierbar) */}
       <DocumentListPanel
         docs={docs}
         selectedId={selectedDocId}
@@ -127,6 +178,7 @@ export default function DocumentsTab({ propertyId }: Props) {
         isAgent={isAgent}
       />
 
+      {/* Rechte Spalte */}
       <div className="space-y-4">
         {selectedDoc && (
           <>
@@ -141,96 +193,121 @@ export default function DocumentsTab({ propertyId }: Props) {
               )}
             </div>
 
-            {!collapsed ? (
-              <Tabs value={activeTab} onValueChange={v => setActiveTab(v as any)} className="w-full">
-                <TabsList>
-                  <TabsTrigger value="document">Document</TabsTrigger>
-                  <TabsTrigger value="notes">Reminder &amp; Notes</TabsTrigger>
-                </TabsList>
+            {/* Tabs: Document / Notes */}
+            <Tabs value={activeTab} onValueChange={v => setActiveTab(v as any)} className="w-full">
+              <TabsList>
+                <TabsTrigger value="document">Document</TabsTrigger>
+                <TabsTrigger value="notes">Reminder &amp; Notes</TabsTrigger>
+              </TabsList>
 
-                <TabsContent value="document" className="mt-4">
-                  <div id="documents-upload-anchor" className="grid grid-cols-12 gap-4">
-                    <div className="col-span-12 lg:col-span-6">
-                      <DocumentFileList
-                        files={files}
-                        onView={setSelectedFile}
-                        onDeleted={async () => {
-                          if (!selectedDocId) return;
-                          // Files neu laden
-                          const r = await repo.listFiles(selectedDocId);
-                          const newFiles = r.ok ? (r.data ?? []) : [];
-                          setFiles(newFiles);
-                          // ⬇️ Status des Dokuments sofort anpassen
-                          updateDocStatus(selectedDocId, newFiles.length > 0);
-                          // Optional: komplette Liste neu laden (falls Backend zusätzlich Flags setzt)
-                          // await refreshDocs();
+              <TabsContent value="document" className="mt-4 space-y-3">
+                {/* === Upload-Button (wieder da) === */}
+                {isAgent && selectedDoc && (
+                  <div>
+                    <label className="inline-flex items-center gap-2 px-3 py-2 rounded-md border cursor-pointer hover:bg-gray-50">
+                      <input
+                        type="file"
+                        className="hidden"
+                        onChange={async (e) => {
+                          if (!e.target.files?.[0] || !selectedDocId) return;
+                          const file = e.target.files[0];
+                          try {
+                            await safeUploadFile(repo as any, selectedDocId, file);
+                            const r = await repo.listFiles(selectedDocId);
+                            const newFiles = r.ok ? (r.data ?? []) : [];
+                            setFiles(newFiles);
+                            updateDocStatus(selectedDocId, newFiles.length > 0);
+                          } finally {
+                            // input leeren (gleiches File erneut möglich)
+                            e.currentTarget.value = '';
+                          }
                         }}
-                        onToggleShare={async () => {
-                          if (!selectedDocId) return;
-                          const r = await repo.listFiles(selectedDocId);
-                          const newFiles = r.ok ? (r.data ?? []) : [];
-                          setFiles(newFiles);
-                          updateDocStatus(selectedDocId, newFiles.length > 0);
-                        }}
-                        isAgent={isAgent}
                       />
-                    </div>
-                    <div className="col-span-12 lg:col-span-6">
-                      <DocumentViewer file={selectedFile} />
-                    </div>
+                      <span>📁 Datei hochladen</span>
+                    </label>
                   </div>
-                </TabsContent>
+                )}
 
-                <TabsContent value="notes" className="mt-4">
-                  <DocumentNotes
-                    propertyDocumentId={selectedDoc.id}
-                    notes={notes}
-                    onAdded={async () => {
-                      if (!selectedDocId) return;
-                      const r = await repo.listNotes(selectedDocId);
-                      if (r.ok) setNotes(r.data ?? []);
-                    }}
-                  />
-                </TabsContent>
-              </Tabs>
-            ) : (
-              <div className="grid grid-cols-1 gap-4">
-                <div>
-                  <DocumentFileList
-                    files={files}
-                    onView={setSelectedFile}
-                    onDeleted={async () => {
-                      if (!selectedDocId) return;
-                      const r = await repo.listFiles(selectedDocId);
-                      const newFiles = r.ok ? (r.data ?? []) : [];
-                      setFiles(newFiles);
-                      updateDocStatus(selectedDocId, newFiles.length > 0);
-                    }}
-                    onToggleShare={async () => {
-                      if (!selectedDocId) return;
-                      const r = await repo.listFiles(selectedDocId);
-                      const newFiles = r.ok ? (r.data ?? []) : [];
-                      setFiles(newFiles);
-                      updateDocStatus(selectedDocId, newFiles.length > 0);
-                    }}
-                    isAgent={isAgent}
-                  />
+                {/* Einfache Dateiliste (minimal) */}
+                <div className="rounded-md border divide-y">
+                  {files.length === 0 ? (
+                    <div className="p-3 text-sm text-muted-foreground">Noch keine Dateien hochgeladen.</div>
+                  ) : (
+                    files.map((f: any) => (
+                      <div key={f.id} className="p-3 flex items-center justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="font-medium truncate">{f.name ?? f.filename ?? 'Datei'}</div>
+                          <div className="text-xs text-muted-foreground">
+                            {(f.size ? Math.round(f.size / 1024) : '?')} KB
+                          </div>
+                        </div>
+                        {isAgent && (
+                          <div className="flex items-center gap-2">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={async () => {
+                                // Optional: Hier könntest du eine Viewer-Logik triggern
+                                setSelectedFile(f);
+                              }}
+                            >
+                              Ansehen
+                            </Button>
+                            <Button
+                              variant="destructive"
+                              size="sm"
+                              onClick={async () => {
+                                if (!selectedDocId) return;
+                                await safeDeleteFile(repo as any, f.id ?? f);
+                                const r = await repo.listFiles(selectedDocId);
+                                const newFiles = r.ok ? (r.data ?? []) : [];
+                                setFiles(newFiles);
+                                updateDocStatus(selectedDocId, newFiles.length > 0);
+                              }}
+                            >
+                              Löschen
+                            </Button>
+                          </div>
+                        )}
+                      </div>
+                    ))
+                  )}
                 </div>
-                <div>
-                  <DocumentViewer file={selectedFile} />
-                </div>
-              </div>
-            )}
+              </TabsContent>
+
+              <TabsContent value="notes" className="mt-4">
+                <DocumentNotes
+                  propertyDocumentId={selectedDoc.id}
+                  notes={notes}
+                  onAdded={async () => {
+                    if (!selectedDocId) return;
+                    const r = await repo.listNotes(selectedDocId);
+                    if (r.ok) setNotes(r.data ?? []);
+                  }}
+                />
+              </TabsContent>
+            </Tabs>
           </>
         )}
       </div>
 
+      {/* Add-Modal – nutzt removedIds für SOFORT-Update + Server-Refresh */}
       {showAdd && (
         <DocumentAddModal
           propertyId={propertyId}
           existingByType={existingByType}
           onClose={() => setShowAdd(false)}
-          onCompleted={async ({ createdIds }) => {
+          onCompleted={async ({ createdIds, removedIds }) => {
+            // 1) Optimistisches Entfernen lokaler Placeholder
+            if (removedIds?.length) {
+              const removedSet = new Set(removedIds);
+              setDocs(prev => prev.filter(d => !removedSet.has(d.id)));
+              if (selectedDocId && removedSet.has(selectedDocId)) {
+                const remaining = docs.filter(d => !removedSet.has(d.id));
+                setSelectedDocId(remaining[0]?.id ?? null);
+              }
+            }
+            // 2) Server-Refresh (stellt sicher, dass alles konsistent ist)
             await refreshDocs(createdIds?.[0] ?? null);
             setShowAdd(false);
           }}
@@ -240,7 +317,7 @@ export default function DocumentsTab({ propertyId }: Props) {
   );
 }
 
-// Utility
+/* ----- (Optional) Badge-Utility falls anderswo benötigt ----- */
 export function StatusBadge({ status }: { status: DocumentStatus }) {
   const map: Record<DocumentStatus, { text: string; className: string }> = {
     uploaded: { text: 'Hochgeladen', className: 'bg-green-100 text-green-700' },
