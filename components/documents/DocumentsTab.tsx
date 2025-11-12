@@ -18,7 +18,6 @@ import ReminderCard from './ReminderCard';
 import DocumentAddModal from './DocumentAddModal';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
-// zentrale Rollenabfrage (funktioniert bei dir)
 import useAgent from '@/hooks/use-agent';
 
 interface Props { propertyId: string }
@@ -52,11 +51,21 @@ export default function DocumentsTab({ propertyId }: Props) {
       } else if (!selectedDocId && items[0]) {
         setSelectedDocId(items[0].id);
       } else if (selectedDocId) {
-        // sicherstellen, dass Auswahl noch existiert
         const stillThere = items.some(d => d.id === selectedDocId);
         if (!stillThere && items[0]) setSelectedDocId(items[0].id);
       }
     }
+  }
+
+  // ⬇️ Helper: Status eines Dokuments lokal aktualisieren
+  function updateDocStatus(docId: string, uploaded: boolean) {
+    setDocs(prev =>
+      prev.map(d =>
+        d.id === docId
+          ? { ...d, status: (uploaded ? 'uploaded' : 'pending') as DocumentStatus }
+          : d
+      )
+    );
   }
 
   useEffect(() => {
@@ -91,8 +100,7 @@ export default function DocumentsTab({ propertyId }: Props) {
   if (loading) return <div className="p-4">Lade Dokumente…</div>;
   if (err) return <div className="p-4 text-red-600">{err}</div>;
 
-  // Map der vorhandenen Dokumente -> für das Modal
-  // Wir nutzen hier status 'uploaded' als hochgeladen, alles andere = noch nichts hochgeladen.
+  // Fürs Add-Modal: Map typeId -> {docId, uploaded}
   const existingByType: Record<string, { docId: string; uploaded: boolean }> = {};
   for (const d of docs) {
     const typeId = (d as any)?.type?.id as string | undefined;
@@ -109,7 +117,6 @@ export default function DocumentsTab({ propertyId }: Props) {
           : 'grid grid-cols-1 md:grid-cols-[280px_1fr] gap-4'
       }
     >
-      {/* Linke Spalte: Liste (kollabierbar) */}
       <DocumentListPanel
         docs={docs}
         selectedId={selectedDocId}
@@ -120,7 +127,6 @@ export default function DocumentsTab({ propertyId }: Props) {
         isAgent={isAgent}
       />
 
-      {/* Rechte Spalte */}
       <div className="space-y-4">
         {selectedDoc && (
           <>
@@ -150,13 +156,21 @@ export default function DocumentsTab({ propertyId }: Props) {
                         onView={setSelectedFile}
                         onDeleted={async () => {
                           if (!selectedDocId) return;
+                          // Files neu laden
                           const r = await repo.listFiles(selectedDocId);
-                          if (r.ok) setFiles(r.data ?? []);
+                          const newFiles = r.ok ? (r.data ?? []) : [];
+                          setFiles(newFiles);
+                          // ⬇️ Status des Dokuments sofort anpassen
+                          updateDocStatus(selectedDocId, newFiles.length > 0);
+                          // Optional: komplette Liste neu laden (falls Backend zusätzlich Flags setzt)
+                          // await refreshDocs();
                         }}
                         onToggleShare={async () => {
                           if (!selectedDocId) return;
                           const r = await repo.listFiles(selectedDocId);
-                          if (r.ok) setFiles(r.data ?? []);
+                          const newFiles = r.ok ? (r.data ?? []) : [];
+                          setFiles(newFiles);
+                          updateDocStatus(selectedDocId, newFiles.length > 0);
                         }}
                         isAgent={isAgent}
                       />
@@ -188,12 +202,16 @@ export default function DocumentsTab({ propertyId }: Props) {
                     onDeleted={async () => {
                       if (!selectedDocId) return;
                       const r = await repo.listFiles(selectedDocId);
-                      if (r.ok) setFiles(r.data ?? []);
+                      const newFiles = r.ok ? (r.data ?? []) : [];
+                      setFiles(newFiles);
+                      updateDocStatus(selectedDocId, newFiles.length > 0);
                     }}
                     onToggleShare={async () => {
                       if (!selectedDocId) return;
                       const r = await repo.listFiles(selectedDocId);
-                      if (r.ok) setFiles(r.data ?? []);
+                      const newFiles = r.ok ? (r.data ?? []) : [];
+                      setFiles(newFiles);
+                      updateDocStatus(selectedDocId, newFiles.length > 0);
                     }}
                     isAgent={isAgent}
                   />
@@ -207,14 +225,12 @@ export default function DocumentsTab({ propertyId }: Props) {
         )}
       </div>
 
-      {/* Modal: bekommt jetzt Info über vorhandene Typen + Callbacks */}
       {showAdd && (
         <DocumentAddModal
           propertyId={propertyId}
           existingByType={existingByType}
           onClose={() => setShowAdd(false)}
-          onCompleted={async ({ createdIds, removedIds }) => {
-            // Nach Änderungen neu laden, und ggf. neues Dokument direkt auswählen
+          onCompleted={async ({ createdIds }) => {
             await refreshDocs(createdIds?.[0] ?? null);
             setShowAdd(false);
           }}
@@ -224,7 +240,7 @@ export default function DocumentsTab({ propertyId }: Props) {
   );
 }
 
-// Utility (unverändert)
+// Utility
 export function StatusBadge({ status }: { status: DocumentStatus }) {
   const map: Record<DocumentStatus, { text: string; className: string }> = {
     uploaded: { text: 'Hochgeladen', className: 'bg-green-100 text-green-700' },
