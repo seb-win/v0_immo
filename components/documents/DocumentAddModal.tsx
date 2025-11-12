@@ -72,6 +72,30 @@ export default function DocumentAddModal({
       }));
     }
   }
+    // ⬆️ ganz oben in DocumentAddModal.tsx (innerhalb der Datei, außerhalb der Komponente)
+  async function safeDeleteDoc(repo: any, docId: string): Promise<boolean> {
+    const tries: Array<keyof any> = [
+      'deletePropertyDocument',
+      'deleteDocument',
+      'removePlaceholder',
+      'removePropertyDocument',
+      'deleteDoc',
+    ];
+
+    for (const m of tries) {
+      try {
+        if (typeof repo?.[m] === 'function') {
+          const res = await repo[m](docId);
+          if (res?.ok !== false) return true; // ok:true oder undefined (aber kein explizites false)
+        }
+      } catch (e) {
+        // ignorieren, nächsten Versuch
+      }
+    }
+    console.warn('Kein passender Repo-Delete-Call gefunden oder alle fehlgeschlagen.', { docId });
+    return false;
+  }
+
 
   async function handleSave() {
     setSaving(true);
@@ -110,11 +134,11 @@ export default function DocumentAddModal({
         const info = existingByType[tid];
         if (!info) continue;
         if (info.uploaded) continue; // Sicherheitsnetz
-        // ⚠️ Falls deine Repo-API anders heißt, HIER den Namen anpassen:
-        const del = await (repo as any).deletePropertyDocument(info.docId);
-        if (del?.ok) removedIds.push(info.docId);
+        const ok = await safeDeleteDoc(repo as any, info.docId);
+        if (ok) removedIds.push(info.docId);
       }
 
+      // Wichtig: am Ende IMMER abschließen, auch wenn einzelne Deletes fehlschlagen
       onCompleted({ createdIds, removedIds });
       onClose();
     } finally {
