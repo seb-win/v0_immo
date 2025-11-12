@@ -132,7 +132,7 @@ export default function DocumentListPanel({
       <CardFooter className="px-4 pb-4 pt-2 border-t">
         <div className="w-full flex justify-center">
           {isAgent ? (
-            <Button size="sm" className="w-full max-w-[180px]" onClick={onAddClick}>
+            <Button size="sm" className="w-full max-w-[180px] bg-[#0A0A0A] hover:bg-[#1A1A1A] text-white" onClick={onAddClick}>
               + Hinzufügen
             </Button>
           ) : (

@@ -18,7 +18,7 @@ import ReminderCard from './ReminderCard';
 import DocumentAddModal from './DocumentAddModal';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
-// NEU: Hook importieren
+// zentrale Rollenabfrage (funktioniert bei dir)
 import useAgent from '@/hooks/use-agent';
 
 interface Props { propertyId: string }
@@ -40,8 +40,24 @@ export default function DocumentsTab({ propertyId }: Props) {
 
   const [showAdd, setShowAdd] = useState(false);
 
-  // ⬇️ NEU: zentrale, robuste Rollenermittlung
-  const { isAgent, loading: roleLoading, error: roleError } = useAgent();
+  const { isAgent } = useAgent();
+
+  async function refreshDocs(selectId?: string | null) {
+    const r = await repo.listPropertyDocuments(propertyId);
+    if (r.ok) {
+      const items = r.data.items ?? [];
+      setDocs(items);
+      if (selectId) {
+        setSelectedDocId(selectId);
+      } else if (!selectedDocId && items[0]) {
+        setSelectedDocId(items[0].id);
+      } else if (selectedDocId) {
+        // sicherstellen, dass Auswahl noch existiert
+        const stillThere = items.some(d => d.id === selectedDocId);
+        if (!stillThere && items[0]) setSelectedDocId(items[0].id);
+      }
+    }
+  }
 
   useEffect(() => {
     let alive = true;
@@ -75,6 +91,16 @@ export default function DocumentsTab({ propertyId }: Props) {
   if (loading) return <div className="p-4">Lade Dokumente…</div>;
   if (err) return <div className="p-4 text-red-600">{err}</div>;
 
+  // Map der vorhandenen Dokumente -> für das Modal
+  // Wir nutzen hier status 'uploaded' als hochgeladen, alles andere = noch nichts hochgeladen.
+  const existingByType: Record<string, { docId: string; uploaded: boolean }> = {};
+  for (const d of docs) {
+    const typeId = (d as any)?.type?.id as string | undefined;
+    if (!typeId) continue;
+    const uploaded = (d.status as DocumentStatus) === 'uploaded';
+    existingByType[typeId] = { docId: d.id, uploaded };
+  }
+
   return (
     <div
       className={
@@ -91,8 +117,7 @@ export default function DocumentsTab({ propertyId }: Props) {
         collapsed={collapsed}
         onToggleCollapsed={() => setCollapsed(v => !v)}
         onAddClick={() => setShowAdd(true)}
-        // ⬇️ Button unten nur für Makler — abhängig von Hook
-        isAgent={isAgent && !roleLoading}
+        isAgent={isAgent}
       />
 
       {/* Rechte Spalte */}
@@ -101,8 +126,7 @@ export default function DocumentsTab({ propertyId }: Props) {
           <>
             <div className="flex items-center justify-between">
               <h2 className="text-xl font-semibold">{selectedDoc.type?.label ?? 'Dokument'}</h2>
-              {/* Agent-spezifisches Widget; falls Rolle noch lädt, blende es einfach aus */}
-              {isAgent && !roleLoading && (
+              {isAgent && (
                 <ReminderCard
                   propertyDocumentId={selectedDoc.id}
                   dueDate={selectedDoc.due_date ?? null}
@@ -110,13 +134,6 @@ export default function DocumentsTab({ propertyId }: Props) {
                 />
               )}
             </div>
-
-            {/* Optional Rolle-Error – nur Hinweise, keine Blockade */}
-            {roleError && (
-              <div className="text-xs text-amber-600">
-                Hinweis: Rolle konnte nicht sicher ermittelt werden – Standardanzeige aktiv.
-              </div>
-            )}
 
             {!collapsed ? (
               <Tabs value={activeTab} onValueChange={v => setActiveTab(v as any)} className="w-full">
@@ -141,7 +158,7 @@ export default function DocumentsTab({ propertyId }: Props) {
                           const r = await repo.listFiles(selectedDocId);
                           if (r.ok) setFiles(r.data ?? []);
                         }}
-                        isAgent={isAgent && !roleLoading}
+                        isAgent={isAgent}
                       />
                     </div>
                     <div className="col-span-12 lg:col-span-6">
@@ -178,7 +195,7 @@ export default function DocumentsTab({ propertyId }: Props) {
                       const r = await repo.listFiles(selectedDocId);
                       if (r.ok) setFiles(r.data ?? []);
                     }}
-                    isAgent={isAgent && !roleLoading}
+                    isAgent={isAgent}
                   />
                 </div>
                 <div>
@@ -190,18 +207,15 @@ export default function DocumentsTab({ propertyId }: Props) {
         )}
       </div>
 
-      {/* Add-Modal */}
+      {/* Modal: bekommt jetzt Info über vorhandene Typen + Callbacks */}
       {showAdd && (
         <DocumentAddModal
           propertyId={propertyId}
+          existingByType={existingByType}
           onClose={() => setShowAdd(false)}
-          onCreated={async () => {
-            const r = await repo.listPropertyDocuments(propertyId);
-            if (r.ok) {
-              const items = r.data.items ?? [];
-              setDocs(items);
-              if (!selectedDocId && items[0]) setSelectedDocId(items[0].id);
-            }
+          onCompleted={async ({ createdIds, removedIds }) => {
+            // Nach Änderungen neu laden, und ggf. neues Dokument direkt auswählen
+            await refreshDocs(createdIds?.[0] ?? null);
             setShowAdd(false);
           }}
         />
