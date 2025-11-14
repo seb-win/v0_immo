@@ -41,7 +41,7 @@ export default function DocumentListPanel({
   // Eingeklappter Zustand: schmale Leiste mit Pfeil (auf gleicher Höhe wie Header)
   if (collapsed) {
     return (
-      <Card className="h-full flex flex-col items-center justify-start pt-2">
+      <Card className="flex flex-col items-center justify-start pt-2 h-[calc(100vh-140px)]">
         <Button
           variant="ghost"
           size="icon"
@@ -57,7 +57,7 @@ export default function DocumentListPanel({
 
   // Ausgeklappt
   return (
-    <Card className="h-full flex flex-col min-h-[320px]">
+    <Card className="flex flex-col min-h-[320px] h-[calc(100vh-140px)]">
       {/* Header */}
       <CardHeader className="flex flex-row items-center justify-between px-4 py-3 pb-2">
         <CardTitle className="text-base md:text-lg font-semibold">Dokumente</CardTitle>
