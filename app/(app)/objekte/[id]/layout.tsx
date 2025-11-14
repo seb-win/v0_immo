@@ -14,7 +14,7 @@ export default function ObjektLayout({
   const base = `/objekte/${params.id}`;
 
   const tabs = [
-    { href: base, label: 'Details', match: (p: string) => p === base },                 // exakt
+    { href: base, label: 'Details', match: (p: string) => p === base },
     { href: `${base}/objektdaten`, label: 'Objektdaten', match: (p: string) => p.startsWith(`${base}/objektdaten`) },
     { href: `${base}/objektaufnahme`, label: 'Objektaufnahme', match: (p: string) => p.startsWith(`${base}/objektaufnahme`) },
     { href: `${base}/dokumente`, label: 'Dokumente', match: (p: string) => p.startsWith(`${base}/dokumente`) },
@@ -23,7 +23,8 @@ export default function ObjektLayout({
   ];
 
   return (
-    <div className="p-4 space-y-4">
+    // ⬇️ p-4 entfernt – nur noch vertikaler Abstand
+    <div className="space-y-4">
       <div className="flex flex-col gap-2">
         <h1 className="text-2xl font-semibold">Objekt</h1>
         <nav className="flex items-center gap-2 border-b border-gray-200 dark:border-gray-800 pb-2">
@@ -45,6 +46,7 @@ export default function ObjektLayout({
           })}
         </nav>
       </div>
+
       <div>{children}</div>
     </div>
   );
