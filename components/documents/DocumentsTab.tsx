@@ -18,10 +18,19 @@ import DocumentAddModal from './DocumentAddModal';
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
-import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import useAgent from '@/hooks/use-agent';
 
+/* -------------------------------------------------------
+   Supabase Storage: ggf. euren Bucket-Namen einsetzen
+   ------------------------------------------------------- */
 const DOCUMENTS_BUCKET = 'documents';
+
+/**
+ * Einheitliche Panel-Höhe für Liste + Details.
+ * Wert ist so gewählt, dass die Karten ca. auf Höhe des Logout-Buttons enden.
+ * Kannst du bei Bedarf feinjustieren.
+ */
+const PANEL_HEIGHT_CLASS = 'h-[calc(100vh-220px)]';
 
 interface Props {
   propertyId: string;
@@ -48,7 +57,7 @@ export default function DocumentsTab({ propertyId }: Props) {
 
   const { isAgent } = useAgent();
 
-  // ---------------- Helpers ----------------
+  /* -------------------- Helpers -------------------- */
 
   async function refreshDocs(preferSelectId?: string | null) {
     const r = await repo.listPropertyDocuments(propertyId);
@@ -60,30 +69,30 @@ export default function DocumentsTab({ propertyId }: Props) {
       } else if (!selectedDocId && items[0]) {
         setSelectedDocId(items[0].id);
       } else if (selectedDocId) {
-        const stillThere = items.some(d => d.id === selectedDocId);
+        const stillThere = items.some((d) => d.id === selectedDocId);
         if (!stillThere && items[0]) setSelectedDocId(items[0].id);
       }
     }
   }
 
   function updateDocStatus(docId: string, uploaded: boolean) {
-    setDocs(prev =>
-      prev.map(d =>
+    setDocs((prev) =>
+      prev.map((d) =>
         d.id === docId
           ? { ...d, status: (uploaded ? 'uploaded' : 'pending') as DocumentStatus }
-          : d
-      )
+          : d,
+      ),
     );
   }
 
-  // ---------------- Effects ----------------
+  /* -------------------- Effects -------------------- */
 
+  // Initial: Dokumente laden
   useEffect(() => {
     let alive = true;
     (async () => {
       const r = await repo.listPropertyDocuments(propertyId);
       if (!alive) return;
-
       if (r.ok) {
         const items = r.data.items ?? [];
         setDocs(items);
@@ -91,19 +100,19 @@ export default function DocumentsTab({ propertyId }: Props) {
       } else {
         setErr(r.error.message ?? 'Fehler');
       }
-
       setLoading(false);
     })();
-
     return () => {
       alive = false;
     };
   }, [propertyId, repo]);
 
+  // Beim Dokumentwechsel: Viewer resetten, Files/Notes neu laden und erste Datei auswählen
   useEffect(() => {
     let alive = true;
 
     (async () => {
+      // Reset Viewer direkt beim Wechsel
       setSelectedFile(null);
       setFiles([]);
       setNotes([]);
@@ -120,12 +129,10 @@ export default function DocumentsTab({ propertyId }: Props) {
       if (fr.ok) {
         const newFiles = fr.data ?? [];
         setFiles(newFiles);
+        // Immer erste Datei setzen (Viewer-Fix A)
         setSelectedFile(newFiles[0] ?? null);
       }
-
-      if (nr.ok) {
-        setNotes(nr.data ?? []);
-      }
+      if (nr.ok) setNotes(nr.data ?? []);
     })();
 
     return () => {
@@ -133,21 +140,22 @@ export default function DocumentsTab({ propertyId }: Props) {
     };
   }, [repo, selectedDocId]);
 
-  const selectedDoc = docs.find(d => d.id === selectedDocId) ?? null;
+  const selectedDoc = docs.find((d) => d.id === selectedDocId) ?? null;
 
   if (loading) return <div className="p-4">Lade Dokumente…</div>;
   if (err) return <div className="p-4 text-red-600">{err}</div>;
 
-  // Map für Add-Modal
+  // Map für Add-Modal: typeId -> { docId, uploaded }
   const existingByType: Record<string, { docId: string; uploaded: boolean }> = {};
   for (const d of docs) {
     const typeId = (d as any)?.type?.id as string | undefined;
     if (!typeId) continue;
-    const uploaded = (d.status as DocumentStatus) === 'uploaded' || (d as any).file_count > 0;
+    const uploaded =
+      (d.status as DocumentStatus) === 'uploaded' || (d as any).file_count > 0;
     existingByType[typeId] = { docId: d.id, uploaded };
   }
 
-  // ---------------- Upload ----------------
+  /* -------------------- Upload (zweistufig) -------------------- */
 
   async function handleUpload(file: File) {
     if (!selectedDoc) return;
@@ -155,23 +163,27 @@ export default function DocumentsTab({ propertyId }: Props) {
     const user = await supabase.auth.getUser();
     const uploadedBy = user.data.user?.id as string | undefined;
 
+    // 1) Pfad bauen (relativ zum Bucket)
     const storagePath = repo.buildStoragePath({
-      bucket: DOCUMENTS_BUCKET,
+      bucket: DOCUMENTS_BUCKET, // Hinweis: bucket wird NICHT in storage_path gespeichert
       propertyId,
       documentTypeKey: selectedDoc.type?.key ?? 'unknown',
       propertyDocumentId: selectedDoc.id,
       originalFilename: file.name,
     });
 
-    const { error: storageErr } = await supabase.storage
+    // 2) Datei in Storage hochladen
+    const { error: storageErr } = await supabase
+      .storage
       .from(DOCUMENTS_BUCKET)
       .upload(storagePath, file, { upsert: false });
 
     if (storageErr) {
-      console.error('upload failed', storageErr);
+      console.error('Storage upload failed:', storageErr);
       return;
     }
 
+    // 3) File in DB registrieren (damit es in listFiles erscheint)
     const meta = {
       filename: file.name,
       ext: file.name.includes('.') ? file.name.split('.').pop() : null,
@@ -184,14 +196,14 @@ export default function DocumentsTab({ propertyId }: Props) {
       selectedDoc.id,
       meta as any,
       uploadedBy as any,
-      storagePath
+      storagePath,
     );
-
     if (!reg.ok) {
-      console.error('registerUploadedFile failed', reg.error);
+      console.error('registerUploadedFile failed:', reg.error);
       return;
     }
 
+    // 4) Files neu laden + Status setzen + Viewer-Datei setzen
     const fr = await repo.listFiles(selectedDoc.id);
     const newFiles = fr.ok ? fr.data ?? [] : [];
     setFiles(newFiles);
@@ -199,41 +211,37 @@ export default function DocumentsTab({ propertyId }: Props) {
     setSelectedFile(newFiles[0] ?? null);
   }
 
-  // ---------------- Layout ----------------
-  // Höhe des Grids: „sichtbarer Bereich“ unterhalb Objekt-Header + Tabs.
-  // Falls der Button nicht exakt mit dem Logout-Button fluchtet:
-  // Zahl in calc(100vh-180px) leicht nach oben/unten anpassen (z.B. 172 / 188).
-
-  const gridHeightClass = 'h-[calc(100vh-180px)]';
+  /* -------------------- Render -------------------- */
 
   return (
-    <div className="space-y-4">
-      <div
-        className={`
-          grid grid-cols-1 gap-4 ${gridHeightClass}
-          ${collapsed ? 'lg:grid-cols-[56px_minmax(0,1fr)]' : 'lg:grid-cols-[280px_minmax(0,1fr)]'}
-        `}
-      >
-        {/* Linke Spalte: Dokumentenliste (füllt Höhe, scrollt intern) */}
-        <DocumentListPanel
-          docs={docs}
-          selectedId={selectedDocId}
-          onSelect={setSelectedDocId}
-          collapsed={collapsed}
-          onToggleCollapsed={() => setCollapsed(v => !v)}
-          onAddClick={() => setShowAdd(true)}
-          isAgent={isAgent}
-        />
+    <div
+      className={
+        collapsed
+          ? 'grid grid-cols-1 md:grid-cols-[56px_minmax(0,1fr)] gap-4'
+          : 'grid grid-cols-1 md:grid-cols-[280px_minmax(0,1fr)] gap-4'
+      }
+    >
+      {/* Linke Spalte: Liste (kollabierbar) */}
+      <DocumentListPanel
+        docs={docs}
+        selectedId={selectedDocId}
+        onSelect={setSelectedDocId}
+        collapsed={collapsed}
+        onToggleCollapsed={() => setCollapsed((v) => !v)}
+        onAddClick={() => setShowAdd(true)}
+        isAgent={isAgent}
+      />
 
-        {/* Rechte Spalte: Card mit internem Scroll für Dateien/Viewer */}
-        <Card className="h-full flex flex-col">
-          <CardHeader>
+      {/* Rechte Spalte */}
+      <div className={`flex flex-col space-y-4 ${PANEL_HEIGHT_CLASS}`}>
+        {selectedDoc && (
+          <>
+            {/* Header bleibt fix, darunter scrollt der Inhalt */}
             <div className="flex items-center justify-between">
-              <CardTitle className="text-lg font-semibold">
-                {selectedDoc?.type?.label ?? 'Dokument'}
-              </CardTitle>
-
-              {isAgent && selectedDoc && (
+              <h2 className="text-xl font-semibold">
+                {selectedDoc.type?.label ?? 'Dokument'}
+              </h2>
+              {isAgent && (
                 <ReminderCard
                   propertyDocumentId={selectedDoc.id}
                   dueDate={selectedDoc.due_date ?? null}
@@ -241,14 +249,12 @@ export default function DocumentsTab({ propertyId }: Props) {
                 />
               )}
             </div>
-          </CardHeader>
 
-          {/* flex-1 + overflow-y-auto → nur der Inhalt der Card scrollt */}
-          <CardContent className="space-y-4 flex-1 overflow-y-auto">
-            {selectedDoc && (
+            {/* Scrollbarer Bereich für Tabs / Dateien / Viewer */}
+            <div className="flex-1 overflow-y-auto">
               <Tabs
                 value={activeTab}
-                onValueChange={v => setActiveTab(v as any)}
+                onValueChange={(v) => setActiveTab(v as any)}
                 className="w-full"
               >
                 <TabsList>
@@ -256,29 +262,32 @@ export default function DocumentsTab({ propertyId }: Props) {
                   <TabsTrigger value="notes">Reminder &amp; Notes</TabsTrigger>
                 </TabsList>
 
-                {/* Document Tab */}
-                <TabsContent value="document" className="space-y-4 pt-4">
-                  {isAgent && (
-                    <label className="inline-flex items-center gap-2 px-3 py-2 rounded-md border cursor-pointer hover:bg-gray-50">
-                      <input
-                        type="file"
-                        className="hidden"
-                        onChange={async (e) => {
-                          if (!e.target.files?.[0]) return;
-                          const file = e.target.files[0];
-                          try {
-                            await handleUpload(file);
-                          } finally {
-                            e.currentTarget.value = '';
-                          }
-                        }}
-                      />
-                      <span>📁 Datei hochladen</span>
-                    </label>
+                {/* ---- Document-Tab: Upload + Liste + Viewer ---- */}
+                <TabsContent value="document" className="mt-4 space-y-3">
+                  {/* Upload-Trigger (optional für Makler) */}
+                  {isAgent && selectedDoc && (
+                    <div>
+                      <label className="inline-flex items-center gap-2 px-3 py-2 rounded-md border cursor-pointer hover:bg-gray-50">
+                        <input
+                          type="file"
+                          className="hidden"
+                          onChange={async (e) => {
+                            if (!e.target.files?.[0]) return;
+                            const file = e.target.files[0];
+                            try {
+                              await handleUpload(file);
+                            } finally {
+                              e.currentTarget.value = '';
+                            }
+                          }}
+                        />
+                        <span>📁 Datei hochladen</span>
+                      </label>
+                    </div>
                   )}
 
-                  {/* Liste der Dateien – eigener kleiner Scroll-Bereich */}
-                  <div className="rounded-md border max-h-64 overflow-y-auto">
+                  {/* Dateiliste (minimal) */}
+                  <div className="rounded-md border divide-y">
                     {files.length === 0 ? (
                       <div className="p-3 text-sm text-muted-foreground">
                         Noch keine Dateien hochgeladen.
@@ -294,10 +303,9 @@ export default function DocumentsTab({ propertyId }: Props) {
                               {f.filename ?? f.name ?? 'Datei'}
                             </div>
                             <div className="text-xs text-muted-foreground">
-                              {(f.size ? Math.round(f.size / 1024) : '?')} KB
+                              {f.size ? Math.round(f.size / 1024) : '?'} KB
                             </div>
                           </div>
-
                           <div className="flex items-center gap-2">
                             <Button
                               variant="outline"
@@ -306,27 +314,39 @@ export default function DocumentsTab({ propertyId }: Props) {
                             >
                               Ansehen
                             </Button>
-
                             {isAgent && (
                               <Button
                                 variant="destructive"
                                 size="sm"
                                 onClick={async () => {
+                                  if (!selectedDocId) return;
                                   const del = await repo.deleteFile(f.id);
                                   if (!del.ok) {
-                                    console.error('delete failed', del.error);
+                                    console.error(
+                                      'deleteFile failed:',
+                                      del.error,
+                                    );
                                     return;
                                   }
+                                  const fr = await repo.listFiles(
+                                    selectedDocId,
+                                  );
+                                  const newFiles = fr.ok ? fr.data ?? [] : [];
+                                  setFiles(newFiles);
+                                  updateDocStatus(
+                                    selectedDocId,
+                                    newFiles.length > 0,
+                                  );
 
-                                  const fr2 = await repo.listFiles(selectedDocId!);
-                                  const newFiles2 = fr2.ok ? fr2.data ?? [] : [];
-                                  setFiles(newFiles2);
-                                  updateDocStatus(selectedDocId!, newFiles2.length > 0);
-
-                                  if (!newFiles2.length) {
+                                  // Viewer robust halten
+                                  if (!newFiles.length) {
                                     setSelectedFile(null);
-                                  } else if (!newFiles2.find(x => x.id === selectedFile?.id)) {
-                                    setSelectedFile(newFiles2[0]);
+                                  } else if (
+                                    !newFiles.find(
+                                      (x) => x.id === selectedFile?.id,
+                                    )
+                                  ) {
+                                    setSelectedFile(newFiles[0]);
                                   }
                                 }}
                               >
@@ -339,51 +359,77 @@ export default function DocumentsTab({ propertyId }: Props) {
                     )}
                   </div>
 
-                  {/* Viewer nimmt restlichen Platz ein, scrollt innerhalb CardContent mit */}
-                  <DocumentViewer
-                    key={selectedFile?.id ?? 'none'}
-                    file={selectedFile}
-                  />
+                  {/* Viewer – key sorgt für sicheres Re-Rendern bei File-Wechsel */}
+                  <div className="rounded-md border">
+                    <DocumentViewer
+                      key={selectedFile?.id ?? 'none'}
+                      file={selectedFile}
+                    />
+                  </div>
                 </TabsContent>
 
-                {/* Notes Tab */}
-                <TabsContent value="notes" className="pt-4">
+                {/* ---- Notes-Tab ---- */}
+                <TabsContent value="notes" className="mt-4">
                   <DocumentNotes
                     propertyDocumentId={selectedDoc.id}
                     notes={notes}
                     onAdded={async () => {
-                      const r = await repo.listNotes(selectedDoc.id);
+                      if (!selectedDocId) return;
+                      const r = await repo.listNotes(selectedDocId);
                       if (r.ok) setNotes(r.data ?? []);
                     }}
                   />
                 </TabsContent>
               </Tabs>
-            )}
-          </CardContent>
-        </Card>
+            </div>
+          </>
+        )}
       </div>
 
+      {/* Add-Modal */}
       {showAdd && (
         <DocumentAddModal
           propertyId={propertyId}
           existingByType={existingByType}
           onClose={() => setShowAdd(false)}
           onCompleted={async ({ createdIds, removedIds }) => {
+            // Optimistisch lokal entfernen
             if (removedIds?.length) {
               const removed = new Set(removedIds);
-              setDocs(prev => prev.filter(d => !removed.has(d.id)));
+              setDocs((prev) => prev.filter((d) => !removed.has(d.id)));
+              setSelectedDocId((prevSel) =>
+                prevSel && removed.has(prevSel) ? null : prevSel,
+              );
+              // Falls das aktuell geöffnete Dokument entfernt wurde, Viewer zurücksetzen
               if (selectedDocId && removed.has(selectedDocId)) {
-                setSelectedDocId(null);
                 setFiles([]);
                 setSelectedFile(null);
               }
             }
-
+            // Server-Refresh (inkl. evtl. neu erstelltes Dok auswählen)
             await refreshDocs(createdIds?.[0] ?? null);
             setShowAdd(false);
           }}
         />
       )}
     </div>
+  );
+}
+
+/* Badge-Utility (optional, falls anderswo benötigt) */
+export function StatusBadge({ status }: { status: DocumentStatus }) {
+  const map: Record<
+    DocumentStatus,
+    { text: string; className: string }
+  > = {
+    uploaded: { text: 'Hochgeladen', className: 'bg-green-100 text-green-700' },
+    overdue: { text: 'Überfällig', className: 'bg-red-100 text-red-700' },
+    pending: { text: 'Ausstehend', className: 'bg-amber-100 text-amber-700' },
+  };
+  const s = map[status] ?? map.pending;
+  return (
+    <span className={`px-2 py-1 rounded text-sm ${s.className}`}>
+      {s.text}
+    </span>
   );
 }
