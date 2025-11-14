@@ -48,9 +48,7 @@ export default function DocumentsTab({ propertyId }: Props) {
 
   const { isAgent } = useAgent();
 
-  // ------------------------------------
-  // Helpers
-  // ------------------------------------
+  // ---------------- Helpers ----------------
 
   async function refreshDocs(preferSelectId?: string | null) {
     const r = await repo.listPropertyDocuments(propertyId);
@@ -78,9 +76,7 @@ export default function DocumentsTab({ propertyId }: Props) {
     );
   }
 
-  // ------------------------------------
-  // Effects
-  // ------------------------------------
+  // ---------------- Effects ----------------
 
   useEffect(() => {
     let alive = true;
@@ -142,7 +138,7 @@ export default function DocumentsTab({ propertyId }: Props) {
   if (loading) return <div className="p-4">Lade Dokumente…</div>;
   if (err) return <div className="p-4 text-red-600">{err}</div>;
 
-  // Map for Add-Modal
+  // Map für Add-Modal
   const existingByType: Record<string, { docId: string; uploaded: boolean }> = {};
   for (const d of docs) {
     const typeId = (d as any)?.type?.id as string | undefined;
@@ -151,9 +147,7 @@ export default function DocumentsTab({ propertyId }: Props) {
     existingByType[typeId] = { docId: d.id, uploaded };
   }
 
-  // ------------------------------------
-  // Upload
-  // ------------------------------------
+  // ---------------- Upload ----------------
 
   async function handleUpload(file: File) {
     if (!selectedDoc) return;
@@ -205,22 +199,22 @@ export default function DocumentsTab({ propertyId }: Props) {
     setSelectedFile(newFiles[0] ?? null);
   }
 
-  // -------------------------------------------------------
-  // NEW LAYOUT (wie Leads-Seite)
-  // -------------------------------------------------------
+  // ---------------- Layout ----------------
+  // Höhe des Grids: „sichtbarer Bereich“ unterhalb Objekt-Header + Tabs.
+  // Falls der Button nicht exakt mit dem Logout-Button fluchtet:
+  // Zahl in calc(100vh-180px) leicht nach oben/unten anpassen (z.B. 172 / 188).
+
+  const gridHeightClass = 'h-[calc(100vh-180px)]';
 
   return (
-    <div className="space-y-4 min-h-[calc(100vh-120px)] flex flex-col"> {/* NEW: global spacing wie Leads */}
-      
+    <div className="space-y-4">
       <div
         className={`
-          grid grid-cols-1 gap-4
+          grid grid-cols-1 gap-4 ${gridHeightClass}
           ${collapsed ? 'lg:grid-cols-[56px_minmax(0,1fr)]' : 'lg:grid-cols-[280px_minmax(0,1fr)]'}
         `}
       >
-        {/* ------------------------------ */}
-        {/* Linke Box — DocumentListPanel */}
-        {/* ------------------------------ */}
+        {/* Linke Spalte: Dokumentenliste (füllt Höhe, scrollt intern) */}
         <DocumentListPanel
           docs={docs}
           selectedId={selectedDocId}
@@ -231,10 +225,8 @@ export default function DocumentsTab({ propertyId }: Props) {
           isAgent={isAgent}
         />
 
-        {/* ------------------------------ */}
-        {/* Rechte Box — jetzt als Card    */}
-        {/* ------------------------------ */}
-        <Card className="h-full">
+        {/* Rechte Spalte: Card mit internem Scroll für Dateien/Viewer */}
+        <Card className="h-full flex flex-col">
           <CardHeader>
             <div className="flex items-center justify-between">
               <CardTitle className="text-lg font-semibold">
@@ -251,7 +243,8 @@ export default function DocumentsTab({ propertyId }: Props) {
             </div>
           </CardHeader>
 
-          <CardContent className="space-y-4">
+          {/* flex-1 + overflow-y-auto → nur der Inhalt der Card scrollt */}
+          <CardContent className="space-y-4 flex-1 overflow-y-auto">
             {selectedDoc && (
               <Tabs
                 value={activeTab}
@@ -263,10 +256,8 @@ export default function DocumentsTab({ propertyId }: Props) {
                   <TabsTrigger value="notes">Reminder &amp; Notes</TabsTrigger>
                 </TabsList>
 
-                {/* -------------------- */}
-                {/* Document Tab        */}
-                {/* -------------------- */}
-                <TabsContent value="document" className="space-y-4">
+                {/* Document Tab */}
+                <TabsContent value="document" className="space-y-4 pt-4">
                   {isAgent && (
                     <label className="inline-flex items-center gap-2 px-3 py-2 rounded-md border cursor-pointer hover:bg-gray-50">
                       <input
@@ -286,7 +277,8 @@ export default function DocumentsTab({ propertyId }: Props) {
                     </label>
                   )}
 
-                  <div className="rounded-md border divide-y">
+                  {/* Liste der Dateien – eigener kleiner Scroll-Bereich */}
+                  <div className="rounded-md border max-h-64 overflow-y-auto">
                     {files.length === 0 ? (
                       <div className="p-3 text-sm text-muted-foreground">
                         Noch keine Dateien hochgeladen.
@@ -326,16 +318,15 @@ export default function DocumentsTab({ propertyId }: Props) {
                                     return;
                                   }
 
-                                  const fr = await repo.listFiles(selectedDocId!);
-                                  const newFiles = fr.ok ? fr.data ?? [] : [];
-                                  setFiles(newFiles);
+                                  const fr2 = await repo.listFiles(selectedDocId!);
+                                  const newFiles2 = fr2.ok ? fr2.data ?? [] : [];
+                                  setFiles(newFiles2);
+                                  updateDocStatus(selectedDocId!, newFiles2.length > 0);
 
-                                  updateDocStatus(selectedDocId!, newFiles.length > 0);
-
-                                  if (!newFiles.length) {
+                                  if (!newFiles2.length) {
                                     setSelectedFile(null);
-                                  } else if (!newFiles.find(x => x.id === selectedFile?.id)) {
-                                    setSelectedFile(newFiles[0]);
+                                  } else if (!newFiles2.find(x => x.id === selectedFile?.id)) {
+                                    setSelectedFile(newFiles2[0]);
                                   }
                                 }}
                               >
@@ -348,16 +339,15 @@ export default function DocumentsTab({ propertyId }: Props) {
                     )}
                   </div>
 
+                  {/* Viewer nimmt restlichen Platz ein, scrollt innerhalb CardContent mit */}
                   <DocumentViewer
                     key={selectedFile?.id ?? 'none'}
                     file={selectedFile}
                   />
                 </TabsContent>
 
-                {/* -------------------- */}
-                {/* Notes Tab           */}
-                {/* -------------------- */}
-                <TabsContent value="notes">
+                {/* Notes Tab */}
+                <TabsContent value="notes" className="pt-4">
                   <DocumentNotes
                     propertyDocumentId={selectedDoc.id}
                     notes={notes}
@@ -373,7 +363,6 @@ export default function DocumentsTab({ propertyId }: Props) {
         </Card>
       </div>
 
-      {/* Add-Modal */}
       {showAdd && (
         <DocumentAddModal
           propertyId={propertyId}

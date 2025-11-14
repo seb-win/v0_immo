@@ -14,17 +14,13 @@ type Props = {
   selectedId: string | null;
   onSelect: (id: string) => void;
 
-  // Collapse handling kommt von DocumentsTab
   collapsed: boolean;
   onToggleCollapsed: () => void;
 
-  // Öffnet DocumentAddModal in DocumentsTab
   onAddClick: () => void;
 
-  // Button nur für Makler
   isAgent: boolean;
 
-  // optional: um neu angelegte Einträge zu markieren
   newIds?: string[];
 };
 
@@ -38,16 +34,16 @@ export default function DocumentListPanel({
   isAgent,
   newIds = [],
 }: Props) {
-  // Eingeklappter Zustand: schmale Leiste mit Pfeil (auf gleicher Höhe wie Header)
+  // Eingeklappter Zustand
   if (collapsed) {
     return (
-      <Card className="flex flex-col items-center justify-start pt-2 h-[calc(100vh-140px)]">
+      <Card className="h-full flex flex-col items-center justify-start pt-2">
         <Button
           variant="ghost"
           size="icon"
           onClick={onToggleCollapsed}
           aria-label="Dokumentenleiste einblenden"
-          className="h-8 w-8"
+          className="h-8 w-8 mt-2"
         >
           <ChevronRight className="h-4 w-4" />
         </Button>
@@ -57,7 +53,7 @@ export default function DocumentListPanel({
 
   // Ausgeklappt
   return (
-    <Card className="flex flex-col min-h-[320px] h-[calc(100vh-140px)]">
+    <Card className="h-full flex flex-col min-h-[320px]">
       {/* Header */}
       <CardHeader className="flex flex-row items-center justify-between px-4 py-3 pb-2">
         <CardTitle className="text-base md:text-lg font-semibold">Dokumente</CardTitle>
@@ -72,7 +68,7 @@ export default function DocumentListPanel({
         </Button>
       </CardHeader>
 
-      {/* Liste */}
+      {/* Liste – nimmt restliche Höhe ein, scrollt intern */}
       <CardContent className="flex-1 overflow-hidden px-0 pt-0">
         <ScrollArea className="h-full pr-2 pl-4">
           <ul className="flex flex-col gap-1 pb-2">
@@ -97,20 +93,18 @@ export default function DocumentListPanel({
                       {d.type?.label ?? (d as any)['name'] ?? 'Dokument'}
                     </span>
 
-                    {/* Status-Badge UNTER dem Namen */}
                     <div className="mt-1">
                       <Badge
                         variant="secondary"
                         className={cn(
                           'inline-flex items-center text-[11px] px-2 py-0',
-                          cls // <- Farben wie im Modal
+                          cls
                         )}
                         title={label}
                       >
                         {label}
                       </Badge>
 
-                      {/* Optional „NEU“-Hinweis */}
                       {isNew && (
                         <Badge
                           variant="outline"
@@ -134,7 +128,7 @@ export default function DocumentListPanel({
         </ScrollArea>
       </CardContent>
 
-      {/* Footer mit zentriertem Button (wie im Mockup) */}
+      {/* Footer bleibt immer unten in der Card */}
       <CardFooter className="px-4 pb-4 pt-2 border-t">
         <div className="w-full flex justify-center">
           {isAgent ? (
@@ -146,7 +140,6 @@ export default function DocumentListPanel({
               + Hinzufügen
             </Button>
           ) : (
-            // Nicht-Makler: kein Button (Layout bleibt stabil)
             <div className="h-9 w-full max-w-[180px]" />
           )}
         </div>
@@ -154,8 +147,6 @@ export default function DocumentListPanel({
     </Card>
   );
 }
-
-/* ---------------- Helpers für Status-Label & Farben ---------------- */
 
 function mapStatus(status?: string) {
   switch (status) {
