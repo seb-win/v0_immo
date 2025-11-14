@@ -210,7 +210,7 @@ export default function DocumentsTab({ propertyId }: Props) {
   // -------------------------------------------------------
 
   return (
-    <div className="space-y-4"> {/* NEW: global spacing wie Leads */}
+    <div className="space-y-4 min-h-[calc(100vh-120px)] flex flex-col"> {/* NEW: global spacing wie Leads */}
       
       <div
         className={`
